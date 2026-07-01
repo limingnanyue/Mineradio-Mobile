@@ -35,15 +35,34 @@ fun FxArchiveSlots(
     slots: List<FxArchiveSlot>,
     onSave: (Int) -> Unit,
     onLoad: (Int) -> Unit,
+    onExport: (Int) -> Unit = {},
+    onImport: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val df = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
-        Text("FX 存档", color = MineradioColors.FcMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("FX 存档", color = MineradioColors.FcMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            // 导入按钮（对应桌面版 importUserFxArchiveFromDialog）
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onImport() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                Text("导入", color = MineradioColors.FcAccent, fontSize = 10.sp)
+            }
+        }
         Spacer(Modifier.height(10.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(slots) { slot ->
-                FxArchiveCard(slot, df, onSave = { onSave(slot.index) }, onLoad = { onLoad(slot.index) })
+                FxArchiveCard(
+                    slot, df,
+                    onSave = { onSave(slot.index) },
+                    onLoad = { onLoad(slot.index) },
+                    onExport = { onExport(slot.index) },
+                )
             }
         }
     }
@@ -55,6 +74,7 @@ private fun FxArchiveCard(
     df: SimpleDateFormat,
     onSave: () -> Unit,
     onLoad: () -> Unit,
+    onExport: () -> Unit = {},
 ) {
     val accent = slot.hasSave
     Box(
@@ -95,6 +115,14 @@ private fun FxArchiveCard(
                         modifier = Modifier.height(28.dp),
                     ) {
                         Text("加载", color = MineradioColors.FcAccent, fontSize = 11.sp)
+                    }
+                    // 导出按钮（对应桌面版 exportUserFxArchive）
+                    GlassSavedButton(
+                        onClick = onExport,
+                        cornerRadius = 8,
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Text("导出", color = MineradioColors.FcMuted, fontSize = 11.sp)
                     }
                 }
             }

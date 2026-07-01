@@ -3,6 +3,8 @@ package com.mineradio.player.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -39,6 +41,9 @@ fun SearchBar(
     placeholder: String = "搜索歌曲、歌手、专辑",
     searchMode: String = "all",
     onModeChange: (String) -> Unit = {},
+    history: List<String> = emptyList(),
+    onHistoryClick: (String) -> Unit = {},
+    onClearHistory: () -> Unit = {},
 ) {
     Column(modifier) {
         // 模式 tab 行（对应桌面版 #search-mode-tabs）
@@ -115,6 +120,48 @@ fun SearchBar(
                     ) {
                         Icon(Icons.Filled.Close, "清除", tint = MineradioColors.FcMuted, modifier = Modifier.size(16.dp))
                     }
+                }
+            }
+        }
+        // 搜索历史 chip 区（对应桌面版 .search-history-chip，仅在输入为空且有历史时显示）
+        if (value.isEmpty() && history.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("历史", color = MineradioColors.FcMuted, fontSize = 10.sp)
+                Spacer(Modifier.width(8.dp))
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(history) { item ->
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(MineradioColors.GlassDark)
+                                .clickable { onHistoryClick(item) }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                item,
+                                color = MineradioColors.FcInk2,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onClearHistory() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("清空", color = MineradioColors.FcMuted, fontSize = 10.sp)
                 }
             }
         }

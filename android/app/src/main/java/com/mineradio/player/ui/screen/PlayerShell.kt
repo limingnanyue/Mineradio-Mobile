@@ -8,7 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
@@ -32,6 +34,8 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -56,6 +60,7 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.size.Size
 import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.delay
 import com.mineradio.player.data.api.dto.Podcast
 import com.mineradio.player.data.api.dto.Song
 import com.mineradio.player.render.GalaxyState
@@ -119,6 +124,36 @@ fun PlayerShell(
         contract = ActivityResultContracts.GetMultipleContents(),
     ) { uris ->
         if (uris.isNotEmpty()) vm.importFiles(uris.map { it.toString() })
+    }
+
+    // FX 存档导出 launcher（对应桌面版 exportUserFxArchive：写 JSON 文件）
+    // 先把待导出的 JSON 存到这个 state，launcher 回调时取出写入
+    var fxExportPayload by remember { mutableStateOf("") }
+    val fxExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null && fxExportPayload.isNotEmpty()) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(fxExportPayload.toByteArray(Charsets.UTF_8))
+                }
+            }
+            fxExportPayload = ""
+        }
+    }
+
+    // FX 存档导入 launcher（对应桌面版 importUserFxArchiveFromDialog）
+    val fxImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { inp ->
+                    val json = inp.bufferedReader(Charsets.UTF_8).readText()
+                    vm.importFxArchiveJson(json)
+                }
+            }
+        }
     }
 
     // 播放模式标签（对应桌面版 #play-mode-chip）
@@ -288,6 +323,9 @@ fun PlayerShell(
                 modifier = Modifier.fillMaxWidth(),
                 searchMode = state.searchMode,
                 onModeChange = vm::setSearchMode,
+                history = state.searchHistory,
+                onHistoryClick = { q -> searchText = q; vm.runSearchHistory(q) },
+                onClearHistory = vm::clearSearchHistory,
             )
         }
 
@@ -346,6 +384,14 @@ fun PlayerShell(
                     slots = state.fxArchives,
                     onSave = vm::saveFxArchive,
                     onLoad = vm::loadFxArchive,
+                    onExport = { idx ->
+                        val json = vm.exportFxArchiveJson(idx)
+                        if (json.isNotEmpty()) {
+                            fxExportPayload = json
+                            fxExportLauncher.launch("mineradio_fx_archive_${idx + 1}.json")
+                        }
+                    },
+                    onImport = { fxImportLauncher.launch(arrayOf("application/json", "*/*")) },
                 )
             }
         }
@@ -384,6 +430,8 @@ fun PlayerShell(
                 onSave = vm::saveCustomLyric,
                 onDelete = vm::deleteCustomLyric,
                 onDismiss = vm::toggleCustomLyric,
+                lyricSource = state.lyricSource,
+                onLyricSourceChange = vm::setLyricSource,
             )
         }
         // 6.5.3 色彩实验室（#color-lab-pop）—— 初始色由 target 字段决定
@@ -407,16 +455,69 @@ fun PlayerShell(
         AnimatedVisibility(visible = state.showLocalBeat, enter = fadeIn(), exit = fadeOut()) {
             LocalBeatModal(onDismiss = vm::toggleLocalBeat)
         }
-        // 6.5.5 更新面板（#update-modal）
+        // 6.5.5 更新面板（#update-modal）—— 完整结构：版本号 + 主副文案 + changelog 列表 + 下载进度按钮
         AnimatedVisibility(visible = state.showUpdateModal, enter = fadeIn(), exit = fadeOut()) {
             DiyOverlayPanel(title = "发现新版本", onClose = vm::toggleUpdateModal) {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    // 版本号（#update-modal-version）
                     Text(
-                        if (state.updateAvailable) "新版本 ${state.updateVersion} 可用" else "已是最新版本",
-                        color = MineradioColors.FcInk,
-                        fontSize = 14.sp,
+                        "v${state.updateVersion}",
+                        color = MineradioColors.FcAccent,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
+                    // 主文案（#update-hero-main）
+                    if (state.updateHeroMain.isNotEmpty()) {
+                        Text(
+                            state.updateHeroMain,
+                            color = MineradioColors.FcInk,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    // 副文案（#update-hero-sub）
+                    if (state.updateHeroSub.isNotEmpty()) {
+                        Text(
+                            state.updateHeroSub,
+                            color = MineradioColors.FcMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    // 更新内容列表（#update-list）
+                    if (state.updateChangelog.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("更新内容", color = MineradioColors.FcInk2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        state.updateChangelog.forEach { line ->
+                            Row(Modifier.padding(vertical = 2.dp)) {
+                                Text("•", color = MineradioColors.FcAccent, fontSize = 12.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(line, color = MineradioColors.FcInk2, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    // 下载按钮（#update-primary-btn + #update-btn-fill 进度）
+                    Button(
+                        onClick = { vm.startUpdateDownload() },
+                        enabled = state.updateAvailable && !state.updateDownloading && state.updateDownloadProgress < 1f,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MineradioColors.FcAccent,
+                            contentColor = MineradioColors.ChillInk,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        val label = when {
+                            state.updateDownloadProgress >= 1f -> "下载完成"
+                            state.updateDownloading -> "下载中 ${(state.updateDownloadProgress * 100).toInt()}%"
+                            state.updateAvailable -> "立即更新"
+                            else -> "已是最新"
+                        }
+                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Text(
                             "暂不更新",
@@ -643,8 +744,13 @@ fun PlayerShell(
                 .padding(start = 16.dp, bottom = 210.dp),
         )
 
-        // 7. Toast
+        // 7. Toast（对应桌面版 #toast，3 秒自动消失）
         state.toast?.let { msg ->
+            // 自动消失定时器（对应桌面版 showToast 的 setTimeout 3000）
+            LaunchedEffect(msg) {
+                delay(3000)
+                vm.dismissToast()
+            }
             Box(
                 Modifier
                     .align(Alignment.Center)
@@ -656,6 +762,11 @@ fun PlayerShell(
             ) {
                 Text(msg, color = MineradioColors.FcInk, fontSize = 14.sp)
             }
+        }
+
+        // 8. 全屏加载浮层（对应桌面版 #loading-overlay）—— 置顶
+        if (state.globalLoading) {
+            LoadingOverlay(modifier = Modifier.fillMaxSize())
         }
     }
 }

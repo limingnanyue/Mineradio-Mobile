@@ -39,9 +39,9 @@
 - **播放服务**：`PlaybackService` 继承 `MediaSessionService`，自动持有前台通知 + 锁屏媒体控件（替代桌面歌词悬浮窗）
 - **UI 完整度**：底栏 1:1 复刻桌面版 `#bottom-bar` 三段式（actions / transport / modes），DIY 配置真正驱动歌词与粒子背景渲染
 
-### 原生 Android 还原进度（P3 完成）
+### 原生 Android 还原进度（P4 完成）
 
-原生 Android 端已按桌面版 `public/index.html` 完成四阶段功能/UI/特效还原：
+原生 Android 端已按桌面版 `public/index.html` 完成五阶段功能/UI/特效还原：
 
 **P0 阶段（基础对齐）**
 - `BottomControlBar` 三段式：音质 pill / 喜欢 / 收藏 / 播放模式 / 迷你队列 / 歌词开关 / 自动隐藏 / 沉浸 / 可拖拽进度条
@@ -100,6 +100,20 @@
 - 清理未使用 import：移除 `PlayerShell` 的 `ShelfRenderer` import、`MainViewModel` 的 `Dispatchers` import
 
 **P3 验证**：经 30+ 项引用完整性核查（构造函数 / 工厂 / ContentResolver 调用 / 函数签名 / 跨文件数据流 / 依赖可用性）全部通过，无编译错误。
+
+**P4 阶段（深度核查 + 6 项核心缺失功能补齐）**
+- 歌词源切换（#lyric-source-seg）：`UiState` 加 `lyricSource`/`originalLyricsLines`；`loadLyric` 缓存原词；`saveCustomLyric` 不再永久覆盖原词；`deleteCustomLyric` 切回原词并恢复；新增 `setLyricSource(mode)`；`CustomLyricModal` 加原词/自定义切换 chip
+- FX 存档 export/import + 持久化（exportUserFxArchive / importUserFxArchiveText）：`org.json.JSONObject` 序列化 41 字段；`SharedPreferences` 持久化 4 槽位（重启不丢）；`FxArchiveSlots` 加导出/导入按钮；`PlayerShell` 接入 SAF `CreateDocument`/`OpenDocument` launcher
+- 搜索历史（.search-history-chip）：`UiState.searchHistory`；`SharedPreferences` 持久化（最多 10 条、去重、置顶）；`SearchBar` 加历史 chip 区 + 清空按钮；新增 `clearSearchHistory`/`runSearchHistory` action
+- 更新面板完整化（#update-modal）：版本号 + 主副文案 + changelog 列表 + 下载进度按钮（模拟下载进度）+ 暂不更新；新增 `setUpdateInfo`/`startUpdateDownload` action
+- 全屏 LoadingOverlay（#loading-overlay）：新建 `LoadingOverlay.kt`（旋转渐变弧 spinner + 文案）；`UiState.globalLoading`；`showGlobalLoading`/`hideGlobalLoading` action
+- Toast 自动消失（#toast）：`LaunchedEffect(msg) + delay(3000) + dismissToast()`，对应桌面版 `showToast` 的 3 秒 setTimeout
+
+**P4 BUG 修复**
+- `prefs by lazy` 声明在 `init` 块之后导致构造期 NPE：Kotlin 属性按声明顺序初始化，`init` 块先执行时 `prefs$delegate` 仍为 null，访问即崩溃。修复为移到 `init` 块之前
+- `CustomLyricModal` 未使用 import：给 `Column` 加 `verticalScroll(rememberScrollState())` 支持长 LRC 文本滚动，同时消除告警
+
+**P4 验证**：经 40+ 项引用完整性核查（JSON 字段名 41 项逐一比对 / lambda 类型匹配 / ActivityResultContracts 用法 / 颜色常量存在性 / 跨文件签名匹配）全部通过。
 
 **渲染管线总览**
 

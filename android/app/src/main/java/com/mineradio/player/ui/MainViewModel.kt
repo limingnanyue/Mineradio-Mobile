@@ -129,6 +129,19 @@ data class UiState(
     // ---- 自动换源提示（对应桌面版 #source-fallback-notice）----
     val showSourceFallback: Boolean = false,       // 自动换源横幅
     val sourceFallbackText: String = "",           // 换源说明文案
+    // ---- 歌词源切换（对应桌面版 #lyric-source-seg：original/custom）----
+    val lyricSource: String = "original",          // original=原词 / custom=自定义
+    val originalLyricsLines: List<LyricLine> = emptyList(), // 原词缓存（切回原词时恢复）
+    // ---- 搜索历史（对应桌面版 .search-history-chip）----
+    val searchHistory: List<String> = emptyList(),
+    // ---- 更新面板（对应桌面版 #update-modal 完整结构）----
+    val updateChangelog: List<String> = emptyList(),       // 更新内容列表
+    val updateHeroMain: String = "",                       // 主文案
+    val updateHeroSub: String = "",                        // 副文案
+    val updateDownloading: Boolean = false,                // 是否下载中
+    val updateDownloadProgress: Float = 0f,                // 0..1
+    // ---- 全局加载浮层（对应桌面版 #loading-overlay）----
+    val globalLoading: Boolean = false,
 )
 
 /** 顶层导航目标。 */
@@ -160,7 +173,19 @@ class MainViewModel(
 
     val playback: StateFlow<PlayerController.PlaybackState> = player.state
 
+    // 注意：prefs 必须在 init 块之前声明，否则构造期访问会 NPE（by lazy 委托字段按声明顺序初始化）
+    private val prefs by lazy {
+        appContext.getSharedPreferences("mineradio_prefs", android.content.Context.MODE_PRIVATE)
+    }
+
     init {
+        // 加载持久化的搜索历史与 FX 存档
+        _state.update {
+            it.copy(
+                searchHistory = loadSearchHistory(),
+                fxArchives = loadPersistedFxArchives(),
+            )
+        }
         // 监听后端地址变化，地址变化后刷新登录态与首页
         viewModelScope.launch(handler) {
             repo.backendUrlFlow.collect { url ->
@@ -168,6 +193,23 @@ class MainViewModel(
                 refreshAll()
             }
         }
+    }
+
+    /** 从 SharedPreferences 恢复 FX 存档槽位（对应桌面版 readUserFxArchives）。 */
+    private fun loadPersistedFxArchives(): List<FxArchiveSlot> {
+        return FxArchives.defaultSlots().map { slot ->
+            val json = prefs.getString("fx_archive_${slot.index}", null)
+            val snap = json?.let { jsonToSnapshot(it) }
+            if (snap != null) slot.copy(savedAt = System.currentTimeMillis(), snapshot = snap) else slot
+        }
+    }
+
+    /** 搜索历史持久化（对应桌面版 localStorage searchHistory）。 */
+    private fun loadSearchHistory(): List<String> =
+        prefs.getString("search_history", null)?.split("\n")?.filter { it.isNotEmpty() }.orEmpty()
+
+    private fun saveSearchHistory(history: List<String>) {
+        prefs.edit().putString("search_history", history.take(10).joinToString("\n")).apply()
     }
 
     fun setBackendUrl(url: String) {
@@ -222,7 +264,14 @@ class MainViewModel(
     }
 
     fun search(keywords: String) {
+        val kw = keywords.trim()
         _state.update { it.copy(searchKeywords = keywords, searchLoading = true) }
+        // 记录搜索历史（非空、去重、置顶、最多 10 条）
+        if (kw.isNotEmpty()) {
+            val newHistory = (listOf(kw) + _state.value.searchHistory.filter { it != kw }).take(10)
+            _state.update { it.copy(searchHistory = newHistory) }
+            saveSearchHistory(newHistory)
+        }
         viewModelScope.launch(handler) {
             val mode = _state.value.searchMode
             when (mode) {
@@ -257,6 +306,15 @@ class MainViewModel(
         if (kw.isNotEmpty()) search(kw)
     }
 
+    /** 清空搜索历史 —— 对应桌面版 clearSearchHistory()。 */
+    fun clearSearchHistory() {
+        _state.update { it.copy(searchHistory = emptyList()) }
+        saveSearchHistory(emptyList())
+    }
+
+    /** 点击历史 chip 重跑搜索 —— 对应桌面版 runSearchHistory(q)。 */
+    fun runSearchHistory(q: String) = search(q)
+
     fun loadPlaylistTracks(id: Long) {
         viewModelScope.launch(handler) {
             val src = _state.value.activeSource
@@ -289,7 +347,15 @@ class MainViewModel(
         viewModelScope.launch(handler) {
             val lrc = runCatching { repo.lyric(song) }.getOrNull()
             val lines = parseLyric(lrc?.lrc?.lyric)
-            _state.update { it.copy(currentLyric = lrc, lyricsLines = lines) }
+            // 缓存原词，并按当前 lyricSource 决定显示哪套
+            // （切到 custom 时保留原词缓存以便回切；切到 original 时直接显示原词）
+            _state.update {
+                it.copy(
+                    currentLyric = lrc,
+                    originalLyricsLines = lines,
+                    lyricsLines = if (it.lyricSource == "custom") it.lyricsLines else lines,
+                )
+            }
         }
     }
 
@@ -644,7 +710,30 @@ class MainViewModel(
     fun saveCustomLyric() {
         val raw = _state.value.customLyricText
         val lines = parseLyric(raw)
-        _state.update { it.copy(lyricsLines = lines, showCustomLyric = false, toast = "已应用自定义歌词") }
+        // 保留当前原词缓存（若已存在），切到 custom 并应用自定义歌词
+        _state.update {
+            it.copy(
+                lyricsLines = lines,
+                lyricSource = "custom",
+                showCustomLyric = false,
+                toast = "已应用自定义歌词",
+            )
+        }
+    }
+
+    /** 切换歌词源 —— 对应桌面版 setLyricSourceMode(mode)。 */
+    fun setLyricSource(mode: String) {
+        val normalized = if (mode == "custom") "custom" else "original"
+        _state.update { s ->
+            val target = if (normalized == "custom") {
+                // 切到自定义：若已有自定义文本则解析应用，否则保持当前
+                if (s.customLyricText.isNotEmpty()) parseLyric(s.customLyricText) else s.lyricsLines
+            } else {
+                // 切回原词：恢复缓存
+                s.originalLyricsLines
+            }
+            s.copy(lyricSource = normalized, lyricsLines = target)
+        }
     }
 
     // ---- 色彩实验室（对应桌面版 #color-lab-pop）----
@@ -676,6 +765,43 @@ class MainViewModel(
     // ---- 更新面板（对应桌面版 #update-modal / #update-entry）----
     fun toggleUpdateModal() = _state.update { it.copy(showUpdateModal = !it.showUpdateModal) }
     fun setUpdateAvailable(version: String) = _state.update { it.copy(updateAvailable = true, updateVersion = version) }
+
+    /** 设置更新面板的完整内容 —— 对应桌面版 applyLatestUpdateInfo(info)。 */
+    fun setUpdateInfo(version: String, changelog: List<String>, heroMain: String, heroSub: String) {
+        _state.update {
+            it.copy(
+                updateAvailable = true,
+                updateVersion = version,
+                updateChangelog = changelog,
+                updateHeroMain = heroMain,
+                updateHeroSub = heroSub,
+            )
+        }
+    }
+
+    /** 模拟下载更新 —— 对应桌面版 startUpdatePreviewDownload()。
+     *  移动端无 Electron autoupdater，这里用协程模拟下载进度。 */
+    fun startUpdateDownload() {
+        if (_state.value.updateDownloading) return
+        _state.update { it.copy(updateDownloading = true, updateDownloadProgress = 0f) }
+        viewModelScope.launch(handler) {
+            for (i in 1..100) {
+                delay(60)
+                _state.update { it.copy(updateDownloadProgress = i / 100f) }
+            }
+            _state.update {
+                it.copy(
+                    updateDownloading = false,
+                    updateDownloadProgress = 1f,
+                    toast = "新版本已下载，重启应用以完成更新",
+                )
+            }
+        }
+    }
+
+    /** 显示/隐藏全局加载浮层 —— 对应桌面版 showLoading()/hideLoading()。 */
+    fun showGlobalLoading() = _state.update { it.copy(globalLoading = true) }
+    fun hideGlobalLoading() = _state.update { it.copy(globalLoading = false) }
 
     // ---- 歌曲/歌手详情（对应桌面版 #track-detail-modal openTrackDetailModal）----
     /** 打开详情：type=song 显示歌曲信息+评论，type=artist 显示歌手主页+热门歌曲。 */
@@ -735,8 +861,15 @@ class MainViewModel(
 
     /** 删除当前曲目的自定义歌词（对应桌面版 deleteCustomLyricForCurrent）。 */
     fun deleteCustomLyric() {
+        // 删除自定义歌词：清空自定义文本，切回原词，恢复原词缓存
         _state.update {
-            it.copy(customLyricText = "", lyricsLines = emptyList(), showCustomLyric = false, toast = "已删除自定义歌词")
+            it.copy(
+                customLyricText = "",
+                lyricSource = "original",
+                lyricsLines = it.originalLyricsLines,
+                showCustomLyric = false,
+                toast = "已删除自定义歌词",
+            )
         }
     }
 
@@ -927,8 +1060,130 @@ class MainViewModel(
             val archives = s.fxArchives.map {
                 if (it.index == index) it.copy(savedAt = System.currentTimeMillis(), snapshot = snap) else it
             }
+            // 持久化到 SharedPreferences（对应桌面版 localStorage userFxArchives）
+            prefs.edit().putString("fx_archive_$index", snapshotToJson(snap)).apply()
             s.copy(fxArchives = archives, toast = "已保存到 ${archives[index].name}")
         }
+    }
+
+    /** 导出 FX 存档为 JSON 字符串 —— 对应桌面版 exportUserFxArchive(index)。 */
+    fun exportFxArchiveJson(index: Int): String {
+        val snap = _state.value.fxArchives.getOrNull(index)?.snapshot ?: return ""
+        return snapshotToJson(snap)
+    }
+
+    /** 从 JSON 字符串导入 FX 存档 —— 对应桌面版 importUserFxArchiveText(text)。 */
+    fun importFxArchiveJson(json: String): Boolean {
+        val snap = jsonToSnapshot(json) ?: return false
+        _state.update { s ->
+            // 写入第一个空槽位，若无空位则覆盖槽位 0
+            val targetIndex = s.fxArchives.indexOfFirst { !it.hasSave }.takeIf { it >= 0 } ?: 0
+            val archives = s.fxArchives.map {
+                if (it.index == targetIndex) it.copy(savedAt = System.currentTimeMillis(), snapshot = snap) else it
+            }
+            prefs.edit().putString("fx_archive_$targetIndex", json).apply()
+            s.copy(fxArchives = archives, toast = "已导入到 ${archives[targetIndex].name}")
+        }
+        return true
+    }
+
+    /** 序列化 FX 快照为 JSON（用 Android 内置 org.json，无需额外依赖）。 */
+    private fun snapshotToJson(snap: FxArchiveSnapshot): String {
+        val o = org.json.JSONObject()
+        o.put("preset", snap.preset)
+        o.put("desktopLyrics", snap.desktopLyrics)
+        o.put("desktopLyricsSize", snap.desktopLyricsSize)
+        o.put("desktopLyricsOpacity", snap.desktopLyricsOpacity)
+        o.put("desktopLyricsY", snap.desktopLyricsY)
+        o.put("desktopLyricsClickThrough", snap.desktopLyricsClickThrough)
+        o.put("desktopLyricsCinema", snap.desktopLyricsCinema)
+        o.put("desktopLyricsHighlight", snap.desktopLyricsHighlight)
+        o.put("desktopLyricsFps", snap.desktopLyricsFps)
+        o.put("lyricColorMode", snap.lyricColorMode)
+        o.put("lyricColor", snap.lyricColor)
+        o.put("lyricHighlightColor", snap.lyricHighlightColor)
+        o.put("lyricGlowColor", snap.lyricGlowColor)
+        o.put("visualTintColor", snap.visualTintColor)
+        o.put("lyricGlowParticles", snap.lyricGlowParticles)
+        o.put("wallpaperMode", snap.wallpaperMode)
+        o.put("wallpaperOpacity", snap.wallpaperOpacity)
+        o.put("lyricFont", snap.lyricFont)
+        o.put("lyricLetterSpacing", snap.lyricLetterSpacing)
+        o.put("lyricLineHeight", snap.lyricLineHeight)
+        o.put("lyricWeight", snap.lyricWeight)
+        o.put("lyricScale", snap.lyricScale)
+        o.put("particleSize", snap.particleSize)
+        o.put("particleSpeed", snap.particleSpeed)
+        o.put("particleTwist", snap.particleTwist)
+        o.put("particleColor", snap.particleColor)
+        o.put("particleBloom", snap.particleBloom)
+        o.put("particleScatter", snap.particleScatter)
+        o.put("particleBgFade", snap.particleBgFade)
+        o.put("shelfSize", snap.shelfSize)
+        o.put("shelfX", snap.shelfX)
+        o.put("shelfY", snap.shelfY)
+        o.put("shelfZ", snap.shelfZ)
+        o.put("shelfAngle", snap.shelfAngle)
+        o.put("shelfOpacity", snap.shelfOpacity)
+        o.put("shelfBgAlpha", snap.shelfBgAlpha)
+        o.put("shelfAccent", snap.shelfAccent)
+        o.put("shelfShowPodcasts", snap.shelfShowPodcasts)
+        o.put("shelfMergeCollections", snap.shelfMergeCollections)
+        o.put("shelfCameraMode", snap.shelfCameraMode)
+        o.put("shelfPresenceMode", snap.shelfPresenceMode)
+        o.put("cameraInteraction", snap.cameraInteraction)
+        return o.toString()
+    }
+
+    /** 从 JSON 解析 FX 快照。 */
+    private fun jsonToSnapshot(json: String): FxArchiveSnapshot? {
+        return runCatching {
+            val o = org.json.JSONObject(json)
+            FxArchiveSnapshot(
+                preset = o.optInt("preset", 0),
+                desktopLyrics = o.optBoolean("desktopLyrics", false),
+                desktopLyricsSize = o.optDouble("desktopLyricsSize", 1.0).toFloat(),
+                desktopLyricsOpacity = o.optDouble("desktopLyricsOpacity", 0.92).toFloat(),
+                desktopLyricsY = o.optDouble("desktopLyricsY", 0.76).toFloat(),
+                desktopLyricsClickThrough = o.optBoolean("desktopLyricsClickThrough", false),
+                desktopLyricsCinema = o.optBoolean("desktopLyricsCinema", true),
+                desktopLyricsHighlight = o.optBoolean("desktopLyricsHighlight", false),
+                desktopLyricsFps = o.optInt("desktopLyricsFps", 60),
+                lyricColorMode = o.optString("lyricColorMode", "auto"),
+                lyricColor = o.optLong("lyricColor", 0xFFA9B8C8),
+                lyricHighlightColor = o.optLong("lyricHighlightColor", 0xFFFFF0B8),
+                lyricGlowColor = o.optLong("lyricGlowColor", 0xFF9DB8CF),
+                visualTintColor = o.optLong("visualTintColor", 0xFF9DB8CF),
+                lyricGlowParticles = o.optBoolean("lyricGlowParticles", false),
+                wallpaperMode = o.optBoolean("wallpaperMode", false),
+                wallpaperOpacity = o.optDouble("wallpaperOpacity", 1.0).toFloat(),
+                lyricFont = o.optString("lyricFont", "default"),
+                lyricLetterSpacing = o.optDouble("lyricLetterSpacing", 0.0).toFloat(),
+                lyricLineHeight = o.optDouble("lyricLineHeight", 1.18).toFloat(),
+                lyricWeight = o.optInt("lyricWeight", 400),
+                lyricScale = o.optDouble("lyricScale", 1.0).toFloat(),
+                particleSize = o.optDouble("particleSize", 1.0).toFloat(),
+                particleSpeed = o.optDouble("particleSpeed", 1.0).toFloat(),
+                particleTwist = o.optDouble("particleTwist", 1.0).toFloat(),
+                particleColor = o.optDouble("particleColor", 1.0).toFloat(),
+                particleBloom = o.optDouble("particleBloom", 1.0).toFloat(),
+                particleScatter = o.optDouble("particleScatter", 1.0).toFloat(),
+                particleBgFade = o.optDouble("particleBgFade", 1.0).toFloat(),
+                shelfSize = o.optDouble("shelfSize", 1.0).toFloat(),
+                shelfX = o.optDouble("shelfX", 0.0).toFloat(),
+                shelfY = o.optDouble("shelfY", 0.0).toFloat(),
+                shelfZ = o.optDouble("shelfZ", 0.0).toFloat(),
+                shelfAngle = o.optDouble("shelfAngle", 0.0).toFloat(),
+                shelfOpacity = o.optDouble("shelfOpacity", 1.0).toFloat(),
+                shelfBgAlpha = o.optDouble("shelfBgAlpha", 0.0).toFloat(),
+                shelfAccent = o.optLong("shelfAccent", 0xFFF4D28A),
+                shelfShowPodcasts = o.optBoolean("shelfShowPodcasts", false),
+                shelfMergeCollections = o.optBoolean("shelfMergeCollections", false),
+                shelfCameraMode = o.optInt("shelfCameraMode", 0),
+                shelfPresenceMode = o.optInt("shelfPresenceMode", 0),
+                cameraInteraction = o.optInt("cameraInteraction", 0),
+            )
+        }.getOrNull()
     }
 
     /** 从槽位加载 FX 配置。 */

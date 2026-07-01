@@ -1,6 +1,8 @@
 package com.mineradio.player.ui.component
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,13 +35,40 @@ fun CustomLyricModal(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    lyricSource: String = "original",
+    onLyricSourceChange: (String) -> Unit = {},
 ) {
     DiyOverlayPanel(
         title = "自定义歌词",
         onClose = onDismiss,
         modifier = modifier,
     ) {
-        Column {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            // 歌词源切换（对应桌面版 #lyric-source-seg：原词/自定义）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf("original" to "原词", "custom" to "自定义").forEach { (mode, label) ->
+                    val active = lyricSource == mode
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (active) MineradioColors.FcAccent else MineradioColors.GlassDark)
+                            .clickable { onLyricSourceChange(mode) }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            label,
+                            color = if (active) MineradioColors.ChillInk else MineradioColors.FcInk2,
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
             // 提示
             Text(
                 "粘贴 LRC 时间轴歌词（[mm:ss.xx]行内容）或纯文本，保存后立即应用",
