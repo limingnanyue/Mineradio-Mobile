@@ -203,6 +203,25 @@ data class PodcastProgram(
 data class BeatmapStatus(val hasCache: Boolean = false, val key: String? = null)
 data class Beatmap(val bpm: Float = 0f, val beats: List<Float> = emptyList(), val intro: Float = 0f, val source: String? = null)
 
+// ---- 歌手详情（对应桌面版 /api/artist/detail 与 /api/qq/artist/detail）----
+data class ArtistDetail(
+    val artist: ArtistInfo = ArtistInfo(),
+    val songs: List<Song> = emptyList(),
+    val error: String? = null,
+)
+
+data class ArtistInfo(
+    val id: Long = 0,
+    val name: String = "",
+    val mid: String? = null,
+    val avatar: String? = null,
+    val img1v1Url: String? = null,
+    val picUrl: String? = null,
+    val albumSize: Int = 0,
+    val musicSize: Int = 0,
+    val briefDesc: String? = null,
+)
+
 // ---- 喜欢列表 ----
 data class LikeList(val ids: List<Long> = emptyList(), val likedIds: Set<Long> = emptySet())
 data class LikeCheck(val code: Int = 0, val likes: Map<String, Boolean> = emptyMap())

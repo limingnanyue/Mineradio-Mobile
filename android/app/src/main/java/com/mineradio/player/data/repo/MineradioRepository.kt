@@ -100,6 +100,19 @@ class MineradioRepository(
         else api().getSongComments(song.id, limit)
     }
 
+    /** 歌手详情：网易云用 id，QQ 用 singerMid。返回热门歌曲列表。 */
+    suspend fun artistDetail(song: Song, limit: Int = 36): ArtistDetail = withContext(Dispatchers.IO) {
+        if (song.source == "qq") {
+            val mid = song.artists?.firstOrNull()?.mid ?: song.mid ?: ""
+            if (mid.isEmpty()) ArtistDetail(error = "缺少 singerMid")
+            else api().getQqArtistDetail(mid, limit)
+        } else {
+            val id = song.artists?.firstOrNull()?.id ?: 0L
+            if (id == 0L) ArtistDetail(error = "缺少歌手 id")
+            else api().getArtistDetail(id, limit)
+        }
+    }
+
     // ---- 播客 / DJ ----
     suspend fun podcastHot(limit: Int = 20): List<Podcast> = withContext(Dispatchers.IO) { api().getPodcastHot(limit) }
     suspend fun searchPodcast(keywords: String): List<Podcast> = withContext(Dispatchers.IO) { api().searchPodcast(keywords) }

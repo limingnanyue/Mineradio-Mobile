@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ fun CustomLyricModal(
     text: String,
     onTextChange: (String) -> Unit,
     onSave: () -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -77,26 +79,34 @@ fun CustomLyricModal(
             // 操作行
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { onTextChange("") }) {
-                    Icon(Icons.Filled.Refresh, "清空", tint = MineradioColors.FcMuted, modifier = Modifier.size(16.dp))
+                // 删除自定义歌词（对应桌面版 deleteCustomLyricForCurrent）
+                TextButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, "删除", tint = MineradioColors.Danger, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("清空", color = MineradioColors.FcMuted, fontSize = 12.sp)
+                    Text("删除", color = MineradioColors.Danger, fontSize = 12.sp)
                 }
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = onSave,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MineradioColors.FcAccent,
-                        contentColor = MineradioColors.ChillInk,
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                ) {
-                    Icon(Icons.Filled.Check, "保存", modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("保存并应用", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { onTextChange("") }) {
+                        Icon(Icons.Filled.Refresh, "清空", tint = MineradioColors.FcMuted, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("清空", color = MineradioColors.FcMuted, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = onSave,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MineradioColors.FcAccent,
+                            contentColor = MineradioColors.ChillInk,
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Icon(Icons.Filled.Check, "保存", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("保存并应用", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

@@ -166,6 +166,22 @@ class PlayerController(private val context: Context) {
         _state.update { it.copy(shuffle = enabled) }
     }
 
+    /** 清空播放队列并停止播放 —— 对应桌面版 clearQueue()。 */
+    fun clearQueue() {
+        val c = controller ?: return
+        c.clearMediaItems()
+        c.stop()
+        _state.update { it.copy(queue = emptyList(), queueIndex = -1) }
+    }
+
+    /** 随机打乱当前队列顺序 —— 对应桌面版 shuffleQueue()。
+     *  移动端使用 ExoPlayer 内置 shuffle 模式（等价于重排播放顺序）。 */
+    fun shuffleQueue() {
+        val c = controller ?: return
+        c.shuffleModeEnabled = true
+        _state.update { it.copy(shuffle = true) }
+    }
+
     /**
      * 把裁剪后的方形封面应用到当前曲目的 MediaSession artwork。
      * 写入缓存文件后用 file:// URI 替换当前 MediaItem 的 artworkUri。

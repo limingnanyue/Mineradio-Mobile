@@ -72,6 +72,7 @@ fun BottomControlBar(
     collectPlaylists: List<Playlist>,
     showCollect: Boolean,
     onCollectToPlaylist: (Long) -> Unit,
+    onCreatePlaylist: (String) -> Unit,
     onDismissCollect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -97,6 +98,7 @@ fun BottomControlBar(
             CollectToPlaylistModal(
                 playlists = collectPlaylists,
                 onPick = onCollectToPlaylist,
+                onCreate = onCreatePlaylist,
                 onDismiss = onDismissCollect,
             )
         }
@@ -398,17 +400,19 @@ private fun MiniQueuePopover(
     }
 }
 
-/** 收藏到歌单弹窗（桌面版 #collect-modal）。 */
+/** 收藏到歌单弹窗（桌面版 #collect-modal，含新建歌单输入）。 */
 @Composable
 private fun CollectToPlaylistModal(
     playlists: List<Playlist>,
     onPick: (Long) -> Unit,
+    onCreate: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var newName by remember { mutableStateOf("") }
     GlassPanel(
         modifier = Modifier
             .width(360.dp)
-            .heightIn(max = 420.dp),
+            .heightIn(max = 460.dp),
         cornerRadius = 24,
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -420,6 +424,37 @@ private fun CollectToPlaylistModal(
                 }
             }
             Spacer(Modifier.height(8.dp))
+            // 新建歌单（对应桌面版 .collect-create）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    placeholder = { Text("新建歌单名称", color = MineradioColors.FcMuted, fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    colors = androidx.compose.material3.TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = MineradioColors.FcAccent,
+                        unfocusedBorderColor = MineradioColors.GlassDark,
+                        cursorColor = MineradioColors.FcAccent,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                androidx.compose.material3.Button(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            onCreate(newName)
+                            newName = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MineradioColors.FcAccent,
+                        contentColor = MineradioColors.ChillInk,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                ) { Text("创建", fontSize = 12.sp) }
+            }
+            Spacer(Modifier.height(12.dp))
             if (playlists.isEmpty()) {
                 Text("没有可用歌单", color = MineradioColors.FcMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
             } else {

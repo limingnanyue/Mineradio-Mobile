@@ -149,10 +149,10 @@ interface MineradioApi {
     suspend fun getQqSongComments(@Query("id") id: Long, @Query("mid") mid: String, @Query("limit") limit: Int = 20): List<Comment>
 
     @GET("api/artist/detail")
-    suspend fun getArtistDetail(@Query("id") id: Long): Any
+    suspend fun getArtistDetail(@Query("id") id: Long, @Query("limit") limit: Int = 36): ArtistDetail
 
     @GET("api/qq/artist/detail")
-    suspend fun getQqArtistDetail(@Query("mid") mid: String): Any
+    suspend fun getQqArtistDetail(@Query("mid") mid: String, @Query("limit") limit: Int = 36): ArtistDetail
 
     // ===== 播客 / DJ =====
     @GET("api/podcast/hot")

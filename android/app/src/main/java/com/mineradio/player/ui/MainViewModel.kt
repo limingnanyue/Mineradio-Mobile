@@ -93,6 +93,14 @@ data class UiState(
     val showUpdateModal: Boolean = false,         // #update-modal 更新面板
     val updateAvailable: Boolean = false,         // #update-entry 角标
     val updateVersion: String = "",               // 新版本号
+    // ---- 歌曲/歌手详情（对应桌面版 #track-detail-modal）----
+    val showTrackDetail: Boolean = false,
+    val trackDetailType: String = "song",         // song / artist
+    val trackDetailSong: Song? = null,
+    val trackDetailArtist: ArtistDetail? = null,
+    val trackDetailLoading: Boolean = false,
+    val trackDetailComments: List<Comment> = emptyList(),
+    val showSplash: Boolean = true,               // #splash 启动遮罩
     val immersiveMode: Boolean = false,
     // ---- 底栏扩展状态（对应桌面版 #bottom-bar 各控件）----
     val showLyricsPanel: Boolean = true,        // .lyrics-toggle-btn，默认显示舞台歌词
@@ -101,6 +109,27 @@ data class UiState(
     val controlsAutoHide: Boolean = false,       // #controls-hide-btn 自动隐藏
     val playbackQuality: String = "auto",        // 桌面版音质档位：auto/sq/hq/lossless/hires/master
     val collectPlaylists: List<Playlist> = emptyList(), // 收藏弹窗里的歌单列表
+    // ---- 歌单/队列三 tab 面板（对应桌面版 #playlist-panel 三 tab：queue/playlists/podcasts）----
+    val showPlaylistPanel: Boolean = false,      // #playlist-panel 浮层开关
+    val playlistPanelTab: String = "queue",      // 当前 tab：queue/playlists/podcasts
+    val playlistPanelPinned: Boolean = false,    // #playlist-pin-btn 常开
+    // ---- 试听片段提示（对应桌面版 #trial-banner）----
+    val showTrialBanner: Boolean = false,        // 试听片段横幅
+    val trialText: String = "仅播放试听片段",     // 试听提示文案
+    val trialLoggedIn: Boolean = false,          // 是否已登录（控制登录按钮显隐）
+    // ---- 节奏/AI 深度状态角标（对应桌面版 #beat-chip / #ai-depth-chip）----
+    val beatChipText: String? = null,            // null=隐藏，非空=显示并展示文案
+    val aiDepthChipText: String? = null,         // null=隐藏，非空=显示并展示文案
+    // ---- 自由镜头提示（对应桌面版 #free-camera-hint）----
+    val showFreeCameraHint: Boolean = false,
+    // ---- 手势 HUD（对应桌面版 #gesture-hud，移动端为视觉占位，实际手势需摄像头+ML Kit）----
+    val showGestureHud: Boolean = false,
+    val gestureLabel: String = "待命",           // 当前手势标签
+    // ---- 导入文件（对应桌面版 #upload-btn + #file-input）----
+    val importedFiles: List<String> = emptyList(), // 已导入文件的 URI 列表
+    // ---- 自动换源提示（对应桌面版 #source-fallback-notice）----
+    val showSourceFallback: Boolean = false,       // 自动换源横幅
+    val sourceFallbackText: String = "",           // 换源说明文案
 )
 
 /** 顶层导航目标。 */
@@ -647,6 +676,162 @@ class MainViewModel(
     // ---- 更新面板（对应桌面版 #update-modal / #update-entry）----
     fun toggleUpdateModal() = _state.update { it.copy(showUpdateModal = !it.showUpdateModal) }
     fun setUpdateAvailable(version: String) = _state.update { it.copy(updateAvailable = true, updateVersion = version) }
+
+    // ---- 歌曲/歌手详情（对应桌面版 #track-detail-modal openTrackDetailModal）----
+    /** 打开详情：type=song 显示歌曲信息+评论，type=artist 显示歌手主页+热门歌曲。 */
+    fun openTrackDetail(type: String, songOverride: Song? = null) {
+        val song = songOverride ?: playback.value.current
+        if (song == null) {
+            _state.update { it.copy(toast = "先播放或选择一首歌") }
+            return
+        }
+        _state.update {
+            it.copy(
+                showTrackDetail = true,
+                trackDetailType = type,
+                trackDetailSong = song,
+                trackDetailArtist = null,
+                trackDetailComments = emptyList(),
+                trackDetailLoading = true,
+            )
+        }
+        viewModelScope.launch(handler) {
+            when (type) {
+                "artist" -> {
+                    val detail = runCatching { repo.artistDetail(song) }.getOrNull()
+                    _state.update { it.copy(trackDetailArtist = detail, trackDetailLoading = false) }
+                }
+                else -> {
+                    val comments = runCatching { repo.comments(song, limit = 18) }.getOrNull().orEmpty()
+                    _state.update { it.copy(trackDetailComments = comments, trackDetailLoading = false) }
+                }
+            }
+        }
+    }
+
+    fun closeTrackDetail() = _state.update {
+        it.copy(showTrackDetail = false, trackDetailArtist = null, trackDetailComments = emptyList(), trackDetailLoading = false)
+    }
+
+    // ---- 启动遮罩（#splash dismissSplash）----
+    fun dismissSplash() = _state.update { it.copy(showSplash = false) }
+
+    // ---- 新建歌单（对应桌面版 createPlaylistFromCollect）----
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) {
+            _state.update { it.copy(toast = "请输入歌单名称") }
+            return
+        }
+        viewModelScope.launch(handler) {
+            val res = runCatching { repo.createPlaylist(name) }.getOrNull()
+            if (res?.code == 200 && res.id != 0L) {
+                refreshUserPlaylists()
+                _state.update { it.copy(toast = "已创建歌单「$name」") }
+            } else {
+                _state.update { it.copy(toast = "创建失败：${res?.message ?: "未知"}") }
+            }
+        }
+    }
+
+    /** 删除当前曲目的自定义歌词（对应桌面版 deleteCustomLyricForCurrent）。 */
+    fun deleteCustomLyric() {
+        _state.update {
+            it.copy(customLyricText = "", lyricsLines = emptyList(), showCustomLyric = false, toast = "已删除自定义歌词")
+        }
+    }
+
+    // ============ 歌单/队列三 tab 面板（对应桌面版 #playlist-panel）============
+
+    /** 切换歌单/队列面板显隐 —— 对应桌面版 togglePlaylistPanel(force)。 */
+    fun togglePlaylistPanel() = _state.update { it.copy(showPlaylistPanel = !it.showPlaylistPanel) }
+
+    /** 切换 tab —— 对应桌面版 switchPlaylistTab(tab)。 */
+    fun switchPlaylistTab(tab: String) {
+        val normalized = when (tab) {
+            "podcasts" -> "podcasts"
+            "playlists" -> "playlists"
+            else -> "queue"
+        }
+        _state.update { it.copy(playlistPanelTab = normalized) }
+        // 切到歌单/播客 tab 时刷新数据
+        when (normalized) {
+            "playlists" -> refreshUserPlaylists()
+            "podcasts" -> { if (_state.value.hotPodcasts.isEmpty()) loadPodcastHot() }
+        }
+    }
+
+    /** 常开开关 —— 对应桌面版 togglePlaylistPanelPinned()。 */
+    fun togglePlaylistPanelPinned() = _state.update { it.copy(playlistPanelPinned = !it.playlistPanelPinned) }
+
+    /** 清空播放队列 —— 对应桌面版 clearQueue()。 */
+    fun clearQueue() = player.clearQueue()
+
+    /** 随机打乱队列 —— 对应桌面版 shuffleQueue()。 */
+    fun shuffleQueue() = player.shuffleQueue()
+
+    // ============ 试听片段提示（对应桌面版 #trial-banner）============
+
+    /** 显示试听横幅 —— 桌面版在 song/url 返回 data.trial 时触发。 */
+    fun showTrialBanner(text: String, loggedIn: Boolean) {
+        _state.update { it.copy(showTrialBanner = true, trialText = text, trialLoggedIn = loggedIn) }
+    }
+
+    fun dismissTrialBanner() = _state.update { it.copy(showTrialBanner = false) }
+
+    // ============ 节奏/AI 深度状态角标（对应桌面版 #beat-chip / #ai-depth-chip）============
+
+    /** 显示节奏分析角标 —— 对应桌面版 showBeatChip(text)。 */
+    fun showBeatChip(text: String) = _state.update { it.copy(beatChipText = text) }
+    fun hideBeatChip() = _state.update { it.copy(beatChipText = null) }
+
+    /** 显示 AI 深度估计角标。 */
+    fun showAiDepthChip(text: String) = _state.update { it.copy(aiDepthChipText = text) }
+    fun hideAiDepthChip() = _state.update { it.copy(aiDepthChipText = null) }
+
+    // ============ 自由镜头提示（对应桌面版 #free-camera-hint）============
+
+    fun toggleFreeCameraHint() = _state.update { it.copy(showFreeCameraHint = !it.showFreeCameraHint) }
+    fun dismissFreeCameraHint() = _state.update { it.copy(showFreeCameraHint = false) }
+
+    // ============ 手势 HUD（对应桌面版 #gesture-hud，移动端视觉占位）============
+
+    fun toggleGestureHud() = _state.update { it.copy(showGestureHud = !it.showGestureHud) }
+    fun setGestureLabel(label: String) = _state.update { it.copy(gestureLabel = label) }
+
+    // ============ 导入音乐/封面文件（对应桌面版 #upload-btn + #file-input）============
+
+    /** 导入本地文件 —— 对应桌面版 handleFileImport(files)。 */
+    fun importFiles(uris: List<String>) {
+        if (uris.isEmpty()) {
+            _state.update { it.copy(toast = "未选择文件") }
+            return
+        }
+        _state.update {
+            it.copy(importedFiles = it.importedFiles + uris, toast = "已导入 ${uris.size} 个文件")
+        }
+        // 简单识别：音频文件加入本地播放队列
+        val audio = uris.filter { it.endsWith(".mp3") || it.endsWith(".flac") || it.endsWith(".wav") || it.endsWith(".ogg") || it.endsWith(".m4a") }
+        if (audio.isNotEmpty()) {
+            val songs = audio.mapIndexed { i, uri ->
+                Song(
+                    id = -1_000_000L - i,
+                    name = uri.substringAfterLast('/').substringBeforeLast('.'),
+                    source = "local",
+                    mid = uri,
+                )
+            }
+            player.playQueue(songs, audio, 0)
+        }
+    }
+
+    // ============ 自动换源提示（对应桌面版 #source-fallback-notice）============
+
+    /** 显示自动换源提示 —— 桌面版在播放源回退时触发。 */
+    fun showSourceFallbackNotice(text: String) {
+        _state.update { it.copy(showSourceFallback = true, sourceFallbackText = text) }
+    }
+
+    fun closeSourceFallbackNotice() = _state.update { it.copy(showSourceFallback = false) }
 
     /** 更新 FX 状态的通用入口。 */
     fun updateFx(transform: (FxState) -> FxState) {

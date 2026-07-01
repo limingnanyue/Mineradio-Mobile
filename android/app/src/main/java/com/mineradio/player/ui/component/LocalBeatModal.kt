@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,30 +38,31 @@ import kotlin.math.abs
 import kotlin.math.sin
 
 /**
- * 本地节奏分析 —— 复刻桌面版 #local-beat-modal。
+ * 本地节奏分析 —— 复刻桌面版 #local-beat-modal（index.html:2569-2592）。
  *
- * 桌面版用 Web Audio API 离线解码本地音频文件，提取 BPM 与节拍点，
- * 用于驱动粒子星河的律动同步。移动端在此提供同等 UI 与模拟分析流程：
- * 点「开始分析」后显示滚动波形 + 节拍脉冲，分析完成后给出 BPM 数值。
+ * 桌面版双模式：
+ *  - MR 分析：日常电影视角（默认）
+ *  - DJ 分析：长混音/强节奏
  *
- * 真实音频解码需接入 MediaExtractor + 自相关 BPM 估算，此处先落地 UI 与交互骨架。
+ * 选模式后点「开始分析」显示滚动波形，完成后给出估算 BPM。
+ * 真实 BPM 估算需 MediaExtractor + 自相关，此处先落地 UI 与交互。
  */
 @Composable
 fun LocalBeatModal(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var mode by remember { mutableStateOf("mr") }       // mr / dj
     var analyzing by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf(false) }
     var bpm by remember { mutableStateOf(0) }
 
-    // 分析时的波形动画进度
     val transition = rememberInfiniteTransition(label = "beat")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
+            animation = tween(durationMillis = if (mode == "dj") 600 else 900, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "phase",
@@ -72,12 +74,36 @@ fun LocalBeatModal(
         modifier = modifier,
     ) {
         Column {
+            // 曲目信息
             Text(
-                "对本地音频进行离线 BPM 估算与节拍提取，结果可同步驱动粒子星河律动",
+                "选择一种电影视角分析方式",
                 color = MineradioColors.FcMuted,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(bottom = 16.dp),
+                modifier = Modifier.padding(bottom = 12.dp),
             )
+
+            // MR / DJ 模式 tab
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BeatModeTab(
+                    title = "MR 分析",
+                    sub = "日常电影视角",
+                    selected = mode == "mr",
+                    onClick = { mode = "mr" },
+                    modifier = Modifier.weight(1f),
+                )
+                BeatModeTab(
+                    title = "DJ 分析",
+                    sub = "长混音/强节奏",
+                    selected = mode == "dj",
+                    onClick = { mode = "dj" },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
 
             // 波形 / 节拍可视化区
             Box(
@@ -93,10 +119,9 @@ fun LocalBeatModal(
                         val w = size.width
                         val h = size.height
                         val mid = h / 2
-                        val bars = 48
+                        val bars = if (mode == "dj") 64 else 48
                         val gap = w / bars
                         for (i in 0 until bars) {
-                            // 模拟波形：基于相位与索引的正弦叠加
                             val amp = (sin((i + phase * bars) * 0.45) +
                                     0.6 * sin((i + phase * bars) * 0.21)) * 0.5
                             val barH = (abs(amp) * (h * 0.42)).coerceAtLeast(2f)
@@ -114,7 +139,6 @@ fun LocalBeatModal(
                                 cap = StrokeCap.Round,
                             )
                         }
-                        // 中线
                         drawLine(
                             color = Color(0x33FFFFFF),
                             start = Offset(0f, mid),
@@ -192,5 +216,31 @@ fun LocalBeatModal(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BeatModeTab(
+    title: String,
+    sub: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) MineradioColors.FcAccent.copy(alpha = 0.14f) else Color(0x0DFFFFFF))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+    ) {
+        Text(
+            title,
+            color = if (selected) MineradioColors.FcAccent else MineradioColors.FcInk2,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(sub, color = MineradioColors.FcMuted, fontSize = 10.sp)
     }
 }
