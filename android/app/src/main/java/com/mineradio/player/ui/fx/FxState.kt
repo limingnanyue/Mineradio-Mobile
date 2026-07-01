@@ -39,6 +39,12 @@ data class FxState(
     val wallpaperOpacity: Float = 1.0f,     // 0.35..1
     val wallpaperDevLocked: Boolean = true,
 
+    // ---- 自定义背景（对应桌面版 wallpaperType / wallpaperColor / wallpaperImage / wallpaperVideo）----
+    // 背景类型：none=默认粒子背景 / color=纯色 / image=图片 / video=视频
+    val customBgType: String = "none",
+    val customBgColor: Color = Color(0xFF05060A),   // color 模式的背景色
+    val customBgUri: String = "",                    // image/video 模式的 content:// URI
+
     // ---- DIY / Simple 模式（diyPlayerMode）----
     val diyMode: Boolean = false,
 

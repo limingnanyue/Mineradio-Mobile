@@ -86,6 +86,9 @@ data class UiState(
     val customLyricText: String = "",             // 当前编辑的 LRC 文本
     val showColorLab: Boolean = false,            // #color-lab-pop 色彩实验室
     val colorLabTarget: String = "lyric",         // 色彩实验室编辑目标：lyric/highlight/glow/tint/shelfAccent
+    // 封面取色弹层（对应桌面版 .cover-color-pop）
+    val showCoverColor: Boolean = false,          // 封面取色弹层开关
+    val coverColorTarget: String = "lyric",       // 取色应用目标：lyric/highlight/glow/tint/shelfAccent
     val showVisualGuide: Boolean = false,         // #visual-guide 视觉引导
     val visualGuideSeen: Boolean = false,         // 是否已看过引导
     val showLocalBeat: Boolean = false,           // #local-beat-modal 本地节奏分析
@@ -105,6 +108,7 @@ data class UiState(
     val showLyricsPanel: Boolean = true,        // .lyrics-toggle-btn，默认显示舞台歌词
     val showMiniQueue: Boolean = false,          // #mini-queue-btn 浮层
     val showCollect: Boolean = false,            // #collect-btn 收藏到歌单弹窗
+    val collectTargetSong: Song? = null,         // 收藏弹窗的目标曲目（默认为当前播放，搜索结果行可指定）
     val controlsAutoHide: Boolean = false,       // #controls-hide-btn 自动隐藏
     val playbackQuality: String = "auto",        // 桌面版音质档位：auto/sq/hq/lossless/hires/master
     val collectPlaylists: List<Playlist> = emptyList(), // 收藏弹窗里的歌单列表
@@ -142,6 +146,10 @@ data class UiState(
     val updateDownloadProgress: Float = 0f,                // 0..1
     // ---- 全局加载浮层（对应桌面版 #loading-overlay）----
     val globalLoading: Boolean = false,
+    // ---- 听歌画像（对应桌面版 listenStatsState / homeListenSummary）----
+    val listenSummary: com.mineradio.player.data.stats.ListenSummary? = null,
+    val recentListen: List<com.mineradio.player.data.stats.ListenRecord> = emptyList(),
+    val showListenProfile: Boolean = false,        // 听歌画像详情弹层
 )
 
 /** 顶层导航目标。 */
@@ -178,12 +186,22 @@ class MainViewModel(
         appContext.getSharedPreferences("mineradio_prefs", android.content.Context.MODE_PRIVATE)
     }
 
+    /** 听歌画像追踪器 —— 复刻桌面版 listenStatsState 机制。 */
+    private val listenTracker by lazy {
+        com.mineradio.player.data.stats.ListenStatsTracker(appContext)
+    }
+
+    /** 上一次见到的曲目 key，用于检测切歌事件以 begin 新会话。 */
+    private var lastSeenSongKey: String? = null
+
     init {
         // 加载持久化的搜索历史与 FX 存档
         _state.update {
             it.copy(
                 searchHistory = loadSearchHistory(),
                 fxArchives = loadPersistedFxArchives(),
+                listenSummary = listenTracker.summary(),
+                recentListen = listenTracker.recentSongs(5),
             )
         }
         // 监听后端地址变化，地址变化后刷新登录态与首页
@@ -192,6 +210,42 @@ class MainViewModel(
                 _state.update { it.copy(backendUrl = url, backendReachable = url.isNotEmpty()) }
                 refreshAll()
             }
+        }
+        // 听歌画像会话钩子：监听 playback StateFlow，按 current / positionMs / isPlaying 驱动 begin/tick/finalize。
+        // 对应桌面版 onAudioTimeUpdate→updateListenStatsTick、onSongChanged→beginListenSession、STATE_ENDED→finalizeListenSession(true)。
+        viewModelScope.launch(handler) {
+            var lastEnded = false
+            player.state.collect { pb ->
+                val song = pb.current
+                val key = song?.let { com.mineradio.player.data.stats.ListenStatsTracker.queueItemKey(it) }
+                // 1. 切歌检测：key 变化时开启新会话（旧会话由 begin 内部 finalize）
+                if (key != null && key != lastSeenSongKey) {
+                    listenTracker.begin(song)
+                    lastSeenSongKey = key
+                    lastEnded = false
+                }
+                // 2. 自然播完检测：isPlaying=false 且 positionMs>=durationMs 且 durationMs>0
+                //    （PlayerController.onPlaybackStateChanged(STATE_ENDED) 会调 skipNext，这里同步 finalize）
+                if (song != null && !pb.isPlaying && pb.durationMs > 0 && pb.positionMs >= pb.durationMs && !lastEnded) {
+                    listenTracker.finalize(completed = true)
+                    lastEnded = true
+                    refreshListenSummary()
+                }
+                // 3. 进度推进 tick（仅 isPlaying 时累加）
+                if (song != null && pb.isPlaying) {
+                    listenTracker.tick(pb.positionMs, pb.durationMs, pb.isPlaying)
+                }
+            }
+        }
+    }
+
+    /** 刷新听歌画像汇总到 UiState（finalize 后调用，或进入首页时调用）。 */
+    private fun refreshListenSummary() {
+        _state.update {
+            it.copy(
+                listenSummary = listenTracker.summary(),
+                recentListen = listenTracker.recentSongs(5),
+            )
         }
     }
 
@@ -361,8 +415,19 @@ class MainViewModel(
 
     // ============ 导航 ============
 
-    fun navigateTo(screen: Screen) = _state.update { it.copy(screen = screen) }
+    fun navigateTo(screen: Screen) {
+        // 进入首页时刷新听歌画像（对应桌面版 emptyHomeActive 时 renderHomeDiscover 读 summary）
+        if (screen == Screen.HOME) refreshListenSummary()
+        _state.update { it.copy(screen = screen) }
+    }
     fun backToPlayer() = _state.update { it.copy(screen = Screen.PLAYER) }
+
+    /** 打开/关闭听歌画像详情弹层 —— 对应桌面版 #profile-modal。 */
+    fun toggleListenProfile() {
+        refreshListenSummary()
+        _state.update { it.copy(showListenProfile = !it.showListenProfile) }
+    }
+    fun dismissListenProfile() = _state.update { it.copy(showListenProfile = false) }
 
     fun openPlaylistLibrary() {
         refreshUserPlaylists()
@@ -641,18 +706,24 @@ class MainViewModel(
             return
         }
         refreshUserPlaylists()
-        _state.update { it.copy(showCollect = true, collectPlaylists = it.playlists) }
+        _state.update { it.copy(showCollect = true, collectTargetSong = playback.value.current, collectPlaylists = it.playlists) }
     }
 
-    fun toggleCollect() = _state.update { it.copy(showCollect = !it.showCollect) }
+    /** 打开「收藏到歌单」弹窗，目标为搜索结果中的指定曲目 —— 对应桌面版搜索行 collect 按钮。 */
+    fun openCollectModalForSong(song: Song) {
+        refreshUserPlaylists()
+        _state.update { it.copy(showCollect = true, collectTargetSong = song, collectPlaylists = it.playlists) }
+    }
+
+    fun toggleCollect() = _state.update { it.copy(showCollect = !it.showCollect, collectTargetSong = null) }
 
     /** 把当前播放曲目加入指定歌单 —— 对应桌面版 collectCurrentToPlaylist(id)。 */
     fun collectCurrentToPlaylist(playlistId: Long) {
-        val song = playback.value.current ?: return
+        val song = _state.value.collectTargetSong ?: playback.value.current ?: return
         viewModelScope.launch(handler) {
             val res = runCatching { repo.addSongToPlaylist(playlistId, song.id) }.getOrNull()
             if (res?.code == 200) {
-                _state.update { it.copy(showCollect = false, toast = "已收藏到歌单") }
+                _state.update { it.copy(showCollect = false, collectTargetSong = null, toast = "已收藏到歌单") }
             } else {
                 _state.update { it.copy(toast = "收藏失败：${res?.message ?: "未知"}") }
             }
@@ -750,9 +821,51 @@ class MainViewModel(
             "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
             "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
             "shelfAccent" -> fx.copy(shelfAccent = color)
+            "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
             else -> fx
         }
         _state.update { it.copy(fx = newFx) }
+    }
+
+    // ---- 封面取色弹层（对应桌面版 .cover-color-pop）----
+    fun toggleCoverColor(target: String = "lyric") = _state.update {
+        it.copy(showCoverColor = !it.showCoverColor, coverColorTarget = target)
+    }
+    /** 封面取色后应用到 FxState 指定字段（复用 applyColorLab 的目标映射逻辑）。 */
+    fun applyCoverColor(color: androidx.compose.ui.graphics.Color) {
+        val target = _state.value.coverColorTarget
+        val fx = _state.value.fx
+        val newFx = when (target) {
+            "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
+            "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
+            "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
+            "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
+            "shelfAccent" -> fx.copy(shelfAccent = color)
+            "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
+            else -> fx
+        }
+        _state.update { it.copy(fx = newFx) }
+    }
+
+    // ---- 自定义背景（对应桌面版 wallpaperType / wallpaperColor / wallpaperImage / wallpaperVideo）----
+    /** 切换背景类型：none=默认粒子 / color=纯色 / image=图片 / video=视频。 */
+    fun setCustomBgType(type: String) = _state.update {
+        it.copy(fx = it.fx.copy(customBgType = type))
+    }
+
+    /** 设置纯色背景颜色。 */
+    fun setCustomBgColor(color: androidx.compose.ui.graphics.Color) = _state.update {
+        it.copy(fx = it.fx.copy(customBgColor = color, customBgType = "color"))
+    }
+
+    /** 设置图片/视频背景 URI。type 必须为 "image" 或 "video"。 */
+    fun setCustomBgUri(type: String, uri: String) = _state.update {
+        it.copy(fx = it.fx.copy(customBgType = type, customBgUri = uri))
+    }
+
+    /** 清除自定义背景，回到默认粒子星河。 */
+    fun clearCustomBg() = _state.update {
+        it.copy(fx = it.fx.copy(customBgType = "none", customBgUri = ""))
     }
 
     // ---- 视觉引导（对应桌面版 #visual-guide）----
@@ -1031,6 +1144,10 @@ class MainViewModel(
                 lyricGlowParticles = s.fx.lyricGlowParticles,
                 wallpaperMode = s.fx.wallpaperMode,
                 wallpaperOpacity = s.fx.wallpaperOpacity,
+                // 自定义背景（对应桌面版 wallpaperType / wallpaperColor / wallpaperImage / wallpaperVideo）
+                customBgType = s.fx.customBgType,
+                customBgColor = s.fx.customBgColor.value.toLong(),
+                customBgUri = s.fx.customBgUri,
                 lyricFont = s.fx.lyricFont,
                 lyricLetterSpacing = s.fx.lyricLetterSpacing,
                 lyricLineHeight = s.fx.lyricLineHeight,
@@ -1107,6 +1224,10 @@ class MainViewModel(
         o.put("lyricGlowParticles", snap.lyricGlowParticles)
         o.put("wallpaperMode", snap.wallpaperMode)
         o.put("wallpaperOpacity", snap.wallpaperOpacity)
+        // 自定义背景
+        o.put("customBgType", snap.customBgType)
+        o.put("customBgColor", snap.customBgColor)
+        o.put("customBgUri", snap.customBgUri)
         o.put("lyricFont", snap.lyricFont)
         o.put("lyricLetterSpacing", snap.lyricLetterSpacing)
         o.put("lyricLineHeight", snap.lyricLineHeight)
@@ -1157,6 +1278,10 @@ class MainViewModel(
                 lyricGlowParticles = o.optBoolean("lyricGlowParticles", false),
                 wallpaperMode = o.optBoolean("wallpaperMode", false),
                 wallpaperOpacity = o.optDouble("wallpaperOpacity", 1.0).toFloat(),
+                // 自定义背景
+                customBgType = o.optString("customBgType", "none"),
+                customBgColor = o.optLong("customBgColor", 0xFF05060A),
+                customBgUri = o.optString("customBgUri", ""),
                 lyricFont = o.optString("lyricFont", "default"),
                 lyricLetterSpacing = o.optDouble("lyricLetterSpacing", 0.0).toFloat(),
                 lyricLineHeight = o.optDouble("lyricLineHeight", 1.18).toFloat(),
@@ -1209,6 +1334,10 @@ class MainViewModel(
                 lyricGlowParticles = snap.lyricGlowParticles,
                 wallpaperMode = snap.wallpaperMode,
                 wallpaperOpacity = snap.wallpaperOpacity,
+                // 自定义背景
+                customBgType = snap.customBgType,
+                customBgColor = Color(snap.customBgColor),
+                customBgUri = snap.customBgUri,
                 lyricFont = snap.lyricFont,
                 lyricLetterSpacing = snap.lyricLetterSpacing,
                 lyricLineHeight = snap.lyricLineHeight,

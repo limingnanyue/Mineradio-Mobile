@@ -67,3 +67,33 @@ fun LikeButton(
         )
     }
 }
+
+/**
+ * 收藏到歌单按钮 —— 复刻桌面版搜索结果行的 collect 入口（Bookmarks 图标）。
+ * 点击后由 ViewModel 打开 #collect 弹窗，目标为该行对应的曲目。
+ */
+@Composable
+fun CollectButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+            ) { onClick() }
+            .padding(6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = androidx.compose.material.icons.Icons.Filled.PlaylistAdd,
+            contentDescription = "收藏到歌单",
+            tint = MineradioColors.FcMuted,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}

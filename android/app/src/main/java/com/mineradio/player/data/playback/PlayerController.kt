@@ -245,17 +245,29 @@ class PlayerController(private val context: Context) {
 
     /**
      * 把裁剪后的方形封面应用到当前曲目的 MediaSession artwork。
-     * 写入缓存文件后用 file:// URI 替换当前 MediaItem 的 artworkUri。
+     *
+     * 关键：必须用 FileProvider 生成 content:// URI，而非 Uri.fromFile(file)（file://）。
+     * SystemUI（状态栏媒体控件 / vivo 流体云 / 锁屏）是独立进程，无权读取应用私有缓存目录的 file:// URI，
+     * 只能通过 FileProvider 授予的 content:// URI 访问。这是流体云显示封面的阻塞前提。
      */
     fun setArtworkBitmap(bitmap: android.graphics.Bitmap) {
         val c = controller ?: return
         val current = c.currentMediaItem ?: return
         runCatching {
-            val file = java.io.File(context.cacheDir, "cropped_cover_${System.currentTimeMillis()}.jpg")
+            val coverDir = java.io.File(context.cacheDir, "artwork").apply { mkdirs() }
+            val file = java.io.File(coverDir, "cropped_cover_${System.currentTimeMillis()}.jpg")
             java.io.FileOutputStream(file).use { out ->
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
             }
-            val uri = android.net.Uri.fromFile(file)
+            // 用 FileProvider 暴露为 content:// URI，授权 SystemUI 读取
+            val authority = "${context.packageName}.fileprovider"
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+            // 授予所有可能读取封面的外部进程（SystemUI / vivo 流体云 / 锁屏）读权限
+            context.grantUriPermission(
+                "com.android.systemui",
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
             val newMeta = current.mediaMetadata.buildUpon()
                 .setArtworkUri(uri)
                 .build()
@@ -283,11 +295,22 @@ class PlayerController(private val context: Context) {
     }
 
     private fun Song.toMediaItem(playUrl: String): MediaItem {
+        // 流体云 / SystemUI 媒体控件依赖完整 MediaMetadata：
+        //  - mediaType=MUSIC 让 vivo OriginOS 把卡片归到「音乐」实时活动类
+        //  - durationMs 让进度条可显示（否则流体云只显示标题无进度）
+        //  - isBrowsable=false / isPlayable=true 表明这是可播但不可浏览的叶子节点
         val meta = MediaMetadata.Builder()
             .setTitle(name)
             .setArtist(displayArtist)
             .setAlbumTitle(displayAlbum)
             .setArtworkUri(if (displayCover.isNotEmpty()) android.net.Uri.parse(displayCover) else null)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .apply {
+                // duration 单位是秒（网易云/QQ API），MediaMetadata 期望毫秒
+                if (duration > 0) setDurationMs(duration * 1000L)
+            }
             .build()
         return MediaItem.Builder()
             .setMediaId("${source}:${id}")

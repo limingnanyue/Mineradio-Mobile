@@ -97,10 +97,11 @@ fun SongList(
 }
 
 /**
- * 带喜欢按钮的歌曲列表 —— 每行 trailing 显示 LikeButton。
- * 对应桌面版搜索结果/队列面板里每首歌右侧的红心。
+ * 带喜欢按钮的歌曲列表 —— 每行 trailing 显示 LikeButton + CollectButton。
+ * 对应桌面版搜索结果/队列面板里每首歌右侧的红心 + 收藏到歌单入口。
  *
  * @param onCheckLikes 列表首次显示时批量检查喜欢态（避免逐个请求）
+ * @param onCollect 点击收藏按钮（song 为该行曲目）
  */
 @Composable
 fun LikeableSongList(
@@ -109,6 +110,7 @@ fun LikeableSongList(
     onSongClick: (Song) -> Unit,
     onToggleLike: (Song) -> Unit,
     onCheckLikes: (List<Song>) -> Unit,
+    onCollect: (Song) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // 首次有歌曲时触发批量喜欢检查
@@ -123,6 +125,7 @@ fun LikeableSongList(
                 onClick = { onSongClick(song) },
                 trailing = {
                     LikeButton(liked = liked, onClick = { onToggleLike(song) })
+                    CollectButton(onClick = { onCollect(song) })
                 },
             )
         }

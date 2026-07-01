@@ -49,5 +49,20 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!--
+          FileProvider —— 把缓存目录中的自定义封面图暴露为 content:// URI，
+          供 SystemUI（状态栏媒体控件 / vivo 流体云 / 锁屏）跨进程读取。
+          对应桌面版 setArtworkBitmap 的本地缓存机制。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

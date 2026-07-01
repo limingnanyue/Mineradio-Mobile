@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 路径配置 —— 用于把缓存目录中的封面图暴露为 content:// URI，
+  供 SystemUI（状态栏媒体控件 / vivo 流体云 / 锁屏）跨进程读取。
+  cache-path 指向 context.cacheDir，对应 PlayerController 写入的 cropped_cover_*.jpg。
+-->
+<paths>
+    <cache-path name="covers" path="." />
+    <cache-path name="artwork" path="artwork/" />
+    <files-path name="files" path="." />
+</paths>

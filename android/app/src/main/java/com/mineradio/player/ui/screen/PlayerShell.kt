@@ -57,9 +57,11 @@ import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import coil.ImageLoader
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
 import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import com.mineradio.player.data.api.dto.Podcast
 import com.mineradio.player.data.api.dto.Song
@@ -93,11 +95,11 @@ fun PlayerShell(
     // 粒子背景配色：custom 模式用 FxState 自定义色，否则用默认 wallpaper 配色
     val galaxyColors = state.fx.overlayColors()
 
-    // 封面裁剪：showCoverCrop 打开时异步加载当前曲目封面为 Bitmap
+    // 封面裁剪 / 封面取色：打开任一弹层时异步加载当前曲目封面为 Bitmap
     val context = LocalContext.current
     var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(state.showCoverCrop, playback.current?.displayCover) {
-        if (state.showCoverCrop) {
+    LaunchedEffect(state.showCoverCrop || state.showCoverColor, playback.current?.displayCover) {
+        if (state.showCoverCrop || state.showCoverColor) {
             val url = playback.current?.displayCover.orEmpty()
             coverBitmap = if (url.isEmpty()) null else runCatching {
                 val loader = ImageLoader(context)
@@ -156,6 +158,20 @@ fun PlayerShell(
         }
     }
 
+    // 自定义背景图片 launcher（对应桌面版 background-image-input + readBackgroundImageFile）
+    val customBgImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) vm.setCustomBgUri("image", uri.toString())
+    }
+
+    // 自定义背景视频 launcher（对应桌面版 readBackgroundVideoFile）
+    val customBgVideoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) vm.setCustomBgUri("video", uri.toString())
+    }
+
     // 播放模式标签（对应桌面版 #play-mode-chip）
     val playModeLabel = when {
         playback.shuffle -> "随机播放"
@@ -165,12 +181,39 @@ fun PlayerShell(
     }
 
     Box(Modifier.fillMaxSize().background(MineradioColors.FcBg)) {
-        // 1. 粒子星河背景（永远铺底）
+        // 0. 自定义背景层（对应桌面版 #custom-bg：纯色 / 图片 / 视频）
+        // 当 customBgType != "none" 时铺底，粒子星河在其上叠加（带透明度）
+        val bgType = state.fx.customBgType
+        if (bgType == "color") {
+            Box(Modifier.fillMaxSize().background(state.fx.customBgColor))
+        } else if (bgType == "image" && state.fx.customBgUri.isNotEmpty()) {
+            AsyncImage(
+                model = state.fx.customBgUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else if (bgType == "video" && state.fx.customBgUri.isNotEmpty()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    android.widget.VideoView(ctx).apply {
+                        setVideoURI(android.net.Uri.parse(state.fx.customBgUri))
+                        setOnPreparedListener { mp -> mp.isLooping = true; mp.setVolume(0f, 0f); mp.start() }
+                    }
+                },
+                update = { vv ->
+                    if (!vv.isPlaying) vv.start()
+                },
+            )
+        }
+        // 1. 粒子星河背景（customBg 激活时降低不透明度，让自定义背景透出）
+        val galaxyOpacity = if (bgType != "none") state.fx.wallpaperOpacity.coerceIn(0.35f, 1f) else 1f
         ParticleGalaxyBackground(
             state = galaxyState,
             playing = playback.isPlaying,
             coverUrl = playback.current?.displayCover,
-            opacity = 1f,
+            opacity = galaxyOpacity,
             preset = state.fx.preset,
             title = playback.current?.name ?: "Mineradio",
             artist = playback.current?.displayArtist ?: "",
@@ -419,6 +462,9 @@ fun PlayerShell(
                     fx = state.fx,
                     onUpdate = vm::updateFx,
                     onOpenColorLab = { target -> vm.toggleColorLab(target) },
+                    onOpenCoverColor = { target -> vm.toggleCoverColor(target) },
+                    onPickCustomBgImage = { customBgImageLauncher.launch("image/*") },
+                    onPickCustomBgVideo = { customBgVideoLauncher.launch("video/*") },
                 )
             }
         }
@@ -442,6 +488,7 @@ fun PlayerShell(
                 "glow" -> state.fx.lyricGlowColor
                 "tint" -> state.fx.visualTintColor
                 "shelfAccent" -> state.fx.shelfAccent
+                "bgColor" -> state.fx.customBgColor
                 else -> state.fx.lyricColor
             }
             ColorLabPop(
@@ -449,6 +496,15 @@ fun PlayerShell(
                 target = state.colorLabTarget,
                 onPick = vm::applyColorLab,
                 onDismiss = { vm.toggleColorLab(state.colorLabTarget) },
+            )
+        }
+        // 6.5.3b 封面取色（.cover-color-pop）—— 从封面 Bitmap 取色 + 自动主色板
+        AnimatedVisibility(visible = state.showCoverColor, enter = fadeIn(), exit = fadeOut()) {
+            CoverColorPop(
+                bitmap = coverBitmap,
+                target = state.coverColorTarget,
+                onPick = vm::applyCoverColor,
+                onDismiss = { vm.toggleCoverColor(state.coverColorTarget) },
             )
         }
         // 6.5.4 本地节奏分析（#local-beat-modal）
@@ -533,6 +589,15 @@ fun PlayerShell(
         // 6.5.6 视觉引导（#visual-guide）—— 全屏遮罩，置顶
         AnimatedVisibility(visible = state.showVisualGuide, enter = fadeIn(), exit = fadeOut()) {
             VisualGuide(onDismiss = vm::dismissVisualGuide)
+        }
+
+        // 6.5.6b 听歌画像弹层（#profile-modal）—— 顶部汇总 + 最近播放列表
+        AnimatedVisibility(visible = state.showListenProfile, enter = fadeIn(), exit = fadeOut()) {
+            ListenProfileModal(
+                summary = state.listenSummary,
+                recent = state.recentListen,
+                onDismiss = vm::dismissListenProfile,
+            )
         }
 
         // 6.5.7 歌曲/歌手详情（#track-detail-modal）
@@ -929,13 +994,20 @@ private fun SideRouter(
             HomeGrid(
                 discover = state.discover,
                 weatherRadio = state.weatherRadio,
+                listenSummary = state.listenSummary,
                 onLibraryClick = vm::openPlaylistLibrary,
                 onDailyClick = vm::playDailyRecommend,
                 onPrivateRadioClick = vm::playPrivateRadio,
                 onContinueClick = vm::playRecentVoice,
-                onProfileClick = { vm.navigateTo(Screen.PLAYER) },
+                onProfileClick = vm::toggleListenProfile,
                 onWeatherSongClick = vm::playWeatherSong,
-                onTileClick = { /* tile 点击暂复用每日推荐 */ vm.playDailyRecommend() },
+                onTileClick = { tile ->
+                    // 不同 tile kind 走不同行为：profile 打开画像弹层，其余复用每日推荐
+                    when (tile.kind) {
+                        "profile" -> vm.toggleListenProfile()
+                        else -> vm.playDailyRecommend()
+                    }
+                },
             )
         }
         state.screen == Screen.PLAYLIST_LIBRARY -> PlaylistLibrary(
@@ -953,6 +1025,7 @@ private fun SideRouter(
             modifier = modifier,
         )
         else -> DailyRecommendSidePanel(
+            vm = vm,
             state = state,
             onSongClick = onSongClick,
             onSearchToggle = onSearchToggle,
@@ -995,6 +1068,7 @@ private fun SearchSidePanel(
                     onSongClick = onSongClick,
                     onToggleLike = vm::toggleLike,
                     onCheckLikes = vm::checkLikes,
+                    onCollect = vm::openCollectModalForSong,
                 )
             }
         }
@@ -1061,6 +1135,7 @@ private fun PodcastSearchResults(
 
 @Composable
 private fun DailyRecommendSidePanel(
+    vm: MainViewModel,
     state: UiState,
     onSongClick: (Song) -> Unit,
     onSearchToggle: () -> Unit,
@@ -1077,6 +1152,7 @@ private fun DailyRecommendSidePanel(
                 onSongClick = onSongClick,
                 onToggleLike = { /* 默认列表的喜欢走当前播放曲 */ },
                 onCheckLikes = { /* 首页推荐不做批量喜欢检查 */ },
+                onCollect = vm::openCollectModalForSong,
             )
         }
     }

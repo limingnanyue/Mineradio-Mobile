@@ -51,6 +51,9 @@ fun FxPanel(
     fx: FxState,
     onUpdate: ((FxState) -> FxState) -> Unit,
     onOpenColorLab: (String) -> Unit,
+    onOpenCoverColor: (String) -> Unit = {},
+    onPickCustomBgImage: () -> Unit = {},
+    onPickCustomBgVideo: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -125,11 +128,81 @@ fun FxPanel(
             ColorLabRow("高亮色", fx.lyricHighlightColor) { onOpenColorLab("highlight") }
             ColorLabRow("溢光色", fx.lyricGlowColor) { onOpenColorLab("glow") }
             ColorLabRow("次级色", fx.visualTintColor) { onOpenColorLab("tint") }
+            // 封面取色入口（对应桌面版 .cover-color-pop，从当前封面 Bitmap 提取主色板）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0x10FFFFFF))
+                    .clickable { onOpenCoverColor("lyric") }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("封面取色", color = MineradioColors.FcInk2, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.weight(1f))
+                Text("从当前封面提取", color = MineradioColors.FcMuted, fontSize = 10.sp)
+            }
             SwitchRow("歌词溢光粒子", fx.lyricGlowParticles) { v -> onUpdate { it.copy(lyricGlowParticles = v) } }
         }
 
-        // 4. 壁纸 / 叠加
+        // 4. 壁纸 / 叠加 / 自定义背景
         FoldSection(title = "叠加 / 壁纸") {
+            // ---- 自定义背景（对应桌面版 #bg-color-picker / #bg-image-value / background-image-input）----
+            Text("背景类型", color = MineradioColors.FcMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SegChip("默认粒子", fx.customBgType == "none") { onUpdate { it.copy(customBgType = "none") } }
+                SegChip("纯色", fx.customBgType == "color") { onUpdate { it.copy(customBgType = "color") } }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SegChip("图片", fx.customBgType == "image") { onPickCustomBgImage() }
+                SegChip("视频", fx.customBgType == "video") { onPickCustomBgVideo() }
+            }
+            // 纯色模式：颜色选择 + 封面渐变重置（对应桌面版 bg-color-picker + resetCustomBackgroundColor）
+            if (fx.customBgType == "color") {
+                ColorLabRow("背景颜色", fx.customBgColor) { onOpenColorLab("bgColor") }
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onUpdate { it.copy(customBgType = "none") }
+                    }.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("重置为封面渐变", color = MineradioColors.FcMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    Text("封面", color = MineradioColors.Champagne, fontSize = 11.sp)
+                }
+            }
+            // 图片/视频模式：显示当前 URI + 清除按钮（对应桌面版 bg-image-value + clearCustomBackgroundImage）
+            if (fx.customBgType == "image" || fx.customBgType == "video") {
+                val label = if (fx.customBgType == "image") "背景图片" else "背景视频"
+                val status = if (fx.customBgUri.isNotEmpty()) "已设置" else "未设置"
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, color = MineradioColors.FcInk2, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(status, color = MineradioColors.FcMuted, fontSize = 11.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0x1AFFFFFF))
+                            .clickable {
+                                onUpdate { it.copy(customBgType = "none", customBgUri = "") }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text("清除", color = MineradioColors.FcInk2, fontSize = 11.sp)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (fx.customBgType == "image") {
+                        SegChip("重新选择", false) { onPickCustomBgImage() }
+                    } else {
+                        SegChip("重新选择", false) { onPickCustomBgVideo() }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // ---- 透明壁纸模式（dev-locked，与桌面版一致）----
             SwitchRow("壁纸模式${if (fx.wallpaperDevLocked) "（开发中）" else ""}", fx.wallpaperMode && !fx.wallpaperDevLocked) {
                 if (!fx.wallpaperDevLocked) onUpdate { it.copy(wallpaperMode = !it.wallpaperMode) }
             }

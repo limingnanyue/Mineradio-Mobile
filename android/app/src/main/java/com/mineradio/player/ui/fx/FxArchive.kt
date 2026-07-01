@@ -27,6 +27,10 @@ data class FxArchiveSnapshot(
     val lyricGlowParticles: Boolean = false,
     val wallpaperMode: Boolean = false,
     val wallpaperOpacity: Float = 1.0f,
+    // 自定义背景
+    val customBgType: String = "none",
+    val customBgColor: Long = 0xFF05060A,
+    val customBgUri: String = "",
     val lyricFont: String = "default",
     val lyricLetterSpacing: Float = 0f,
     val lyricLineHeight: Float = 1.18f,

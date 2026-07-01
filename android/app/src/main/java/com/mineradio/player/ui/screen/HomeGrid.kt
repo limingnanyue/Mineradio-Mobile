@@ -23,6 +23,8 @@ import com.mineradio.player.data.api.dto.DiscoverHome
 import com.mineradio.player.data.api.dto.Playlist
 import com.mineradio.player.data.api.dto.Song
 import com.mineradio.player.data.api.dto.WeatherRadio
+import com.mineradio.player.data.stats.ListenSummary
+import com.mineradio.player.data.stats.ListenRecord
 import com.mineradio.player.ui.theme.MineradioColors
 
 /**
@@ -33,7 +35,7 @@ import com.mineradio.player.ui.theme.MineradioColors
  *  2. 每日推荐（Daily）→ 播放
  *  3. 私人电台（Song）→ 播放
  *  4. 继续听（Continue）→ 播放最近
- *  5. 听歌画像（Profile）→ 打开画像
+ *  5. 听歌画像（Profile）→ 打开画像（显示 topArtist / 总分钟数）
  *  6. 常听歌手（Song）→ 播放
  *
  * 下方 home-rail：最多 5 个 tile（天气歌曲/最近/画像/歌单/播客）。
@@ -42,6 +44,7 @@ import com.mineradio.player.ui.theme.MineradioColors
 fun HomeGrid(
     discover: DiscoverHome?,
     weatherRadio: WeatherRadio?,
+    listenSummary: ListenSummary?,
     onLibraryClick: () -> Unit,
     onDailyClick: () -> Unit,
     onPrivateRadioClick: () -> Unit,
@@ -64,7 +67,16 @@ fun HomeGrid(
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            HomeCard("LOCAL", "听歌画像", "你的音乐足迹", null, onProfileClick, Modifier.weight(1f))
+            // 听歌画像卡片：显示 topArtist 名字 + 总播放分钟数（无数据时显示引导文案）
+            val profileTitle = listenSummary?.topArtist?.name ?: "听歌画像"
+            val profileSub = if (listenSummary != null && listenSummary.totalPlays > 0) {
+                "听过 ${listenSummary.totalPlays} 次 · ${listenSummary.totalMinutes} 分钟"
+            } else {
+                "你的音乐足迹"
+            }
+            val profileCover = listenSummary?.topSong?.cover?.ifEmpty { null }
+                ?: listenSummary?.recent?.cover?.ifEmpty { null }
+            HomeCard("LOCAL", profileTitle, profileSub, profileCover, onProfileClick, Modifier.weight(1f))
             HomeCard("MIX", "常听歌手", "发现更多", discover?.dailyRecommend?.getOrNull(2)?.displayCover, { onDailyClick() }, Modifier.weight(1f))
         }
 
@@ -80,7 +92,7 @@ fun HomeGrid(
         }
 
         // home-rail tiles
-        val tiles = buildHomeTiles(discover, weatherRadio)
+        val tiles = buildHomeTiles(discover, weatherRadio, listenSummary)
         if (tiles.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Text("为你推荐", color = MineradioColors.FcMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -150,20 +162,28 @@ private fun WeatherPill(text: String) {
 }
 
 data class HomeTile(
-    val kind: String,        // weatherSong / recent / song / playlist / podcast
+    val kind: String,        // weatherSong / recent / song / playlist / podcast / profile
     val title: String,
     val sub: String,
     val cover: String?,
     val index: Int,
 )
 
-private fun buildHomeTiles(discover: DiscoverHome?, weather: WeatherRadio?): List<HomeTile> {
+private fun buildHomeTiles(
+    discover: DiscoverHome?,
+    weather: WeatherRadio?,
+    summary: ListenSummary?,
+): List<HomeTile> {
     val tiles = mutableListOf<HomeTile>()
     weather?.songs?.take(3)?.forEachIndexed { i, s ->
         tiles.add(HomeTile("weatherSong", s.name, s.displayArtist, s.displayCover, i))
     }
     discover?.recentVoice?.take(2)?.forEachIndexed { i, s ->
         tiles.add(HomeTile("recent", s.name, s.displayArtist, s.displayCover, i))
+    }
+    // 听歌画像 tile：常听歌手或最热曲目（对应桌面版 home-rail 的 profile tile）
+    summary?.topSong?.let { ts ->
+        tiles.add(HomeTile("profile", ts.name, "听过 ${ts.plays} 次", ts.cover.ifEmpty { null }, 0))
     }
     discover?.myPlaylists?.take(2)?.forEachIndexed { i, p ->
         tiles.add(HomeTile("playlist", p.name, "${p.trackCount} 首", p.coverImgUrl ?: p.picUrl, i))
