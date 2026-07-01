@@ -52,6 +52,7 @@ fun CoverCropModal(
     bitmap: Bitmap?,
     onCommit: (Bitmap) -> Unit,
     onDismiss: () -> Unit,
+    onClear: (() -> Unit)? = null,
 ) {
     if (bitmap == null) return
     var offsetX by remember { mutableStateOf(0f) }
@@ -149,7 +150,18 @@ fun CoverCropModal(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 清除自定义封面（对应桌面版 #clear-cover-btn）
+                if (onClear != null) {
+                    TextButton(onClick = {
+                        onClear()
+                        onDismiss()
+                    }) { Text("清除封面", color = MineradioColors.FcMuted) }
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 TextButton(onClick = onDismiss) { Text("取消", color = MineradioColors.FcMuted) }
                 Spacer(Modifier.width(8.dp))
                 Button(

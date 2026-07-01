@@ -39,10 +39,10 @@ import java.util.Locale
  * 桌面版来源：public/index.html:2403-2457
  *   actions 段：封面 / 标题 / 艺人 / 音质 pill / 喜欢 / 收藏
  *   transport 段：播放模式 / 上一曲 / 播放暂停 / 下一曲 / 迷你队列
- *   modes 段：歌词开关 / 音量(移动端省略) / 控制条自动隐藏 / 全沉浸式 / 全屏(移动端省略) / 时间显示
+ *   modes 段：歌词开关 / 音量 / 控制条自动隐藏 / 全沉浸式 / 全屏(移动端省略) / 时间显示
  *
  * 移动端适配：
- *  - 音量由系统音量键控制，省略 #volume-control；
+ *  - 音量映射到系统 STREAM_MUSIC，保留 #volume-control 按钮与滑块（完整还原桌面版）；
  *  - 全屏等价于沉浸模式，已在 TopBar 与 DIY 浮区暴露，底栏不重复；
  *  - 其余控件全部保留，与桌面版一致。
  */
@@ -74,6 +74,10 @@ fun BottomControlBar(
     onCollectToPlaylist: (Long) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onDismissCollect: () -> Unit,
+    volume: Float = 1f,
+    muted: Boolean = false,
+    onVolumeChange: (Float) -> Unit = {},
+    onToggleMute: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier) {
@@ -213,6 +217,13 @@ fun BottomControlBar(
                         tint = if (immersiveMode) MineradioColors.FcAccent else MineradioColors.FcInk2,
                     )
                 }
+                // 音量控制（#volume-control）—— 映射到 STREAM_MUSIC
+                VolumeControl(
+                    volume = volume,
+                    muted = muted,
+                    onVolumeChange = onVolumeChange,
+                    onToggleMute = onToggleMute,
+                )
                 // 时间显示（#time-display）
                 Text(
                     text = "${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}",
@@ -288,6 +299,55 @@ private fun qualityLabel(quality: String): String = when (quality) {
     "hq" -> "HQ"
     "sq" -> "标准"
     else -> "自动"
+}
+
+/** 音量控制（桌面版 #volume-control：按钮 + 弹出滑块 + 数值）。
+ *  移动端映射到系统 STREAM_MUSIC 音量。 */
+@Composable
+private fun VolumeControl(
+    volume: Float,
+    muted: Boolean,
+    onVolumeChange: (Float) -> Unit,
+    onToggleMute: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val icon = when {
+        muted || volume <= 0f -> Icons.Filled.VolumeOff
+        volume < 0.5f -> Icons.Filled.VolumeDown
+        else -> Icons.Filled.VolumeUp
+    }
+    Box {
+        IconButton(onClick = onToggleMute, modifier = Modifier.size(40.dp)) {
+            Icon(
+                icon,
+                "音量",
+                tint = if (muted) MineradioColors.FcInk2 else MineradioColors.FcInk2,
+            )
+        }
+        // 长按 / 点击图标右侧展开滑块浮层（对应桌面版 toggleVolumePanel）
+        IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Filled.ArrowDropDown, "音量面板", tint = MineradioColors.FcMuted, modifier = Modifier.size(16.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp).width(180.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "${(volume * 100).toInt()}%",
+                    color = MineradioColors.FcAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Slider(
+                    value = if (muted) 0f else volume,
+                    onValueChange = onVolumeChange,
+                    valueRange = 0f..1f,
+                )
+            }
+        }
+    }
 }
 
 /** 可拖拽进度条（桌面版 #progress-fill + #progress-thumb）。 */

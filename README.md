@@ -39,9 +39,9 @@
 - **播放服务**：`PlaybackService` 继承 `MediaSessionService`，自动持有前台通知 + 锁屏媒体控件（替代桌面歌词悬浮窗）
 - **UI 完整度**：底栏 1:1 复刻桌面版 `#bottom-bar` 三段式（actions / transport / modes），DIY 配置真正驱动歌词与粒子背景渲染
 
-### 原生 Android 还原进度（P1 完成）
+### 原生 Android 还原进度（P3 完成）
 
-原生 Android 端已按桌面版 `public/index.html` 完成两阶段功能/UI/特效还原：
+原生 Android 端已按桌面版 `public/index.html` 完成四阶段功能/UI/特效还原：
 
 **P0 阶段（基础对齐）**
 - `BottomControlBar` 三段式：音质 pill / 喜欢 / 收藏 / 播放模式 / 迷你队列 / 歌词开关 / 自动隐藏 / 沉浸 / 可拖拽进度条
@@ -63,6 +63,43 @@
 - `CoverCropModal` 接入实际封面：Coil 异步加载当前曲目封面 → Bitmap，裁剪后写回 MediaSession artwork
 - `TopBar` 更新角标：设置图标 `BadgedBox` 显示新版本号，新增视觉控制台/自定义歌词/本地节奏/使用引导入口
 - `PlayerController.setArtworkBitmap`：裁剪封面写入缓存并替换当前 MediaItem artworkUri
+
+**P2 阶段（完整还原桌面版全部 DOM 模块）**
+- `SplashOverlay`：启动遮罩（#splash），MINERADIO 字标 + 青色信号线 + 呼吸闪烁「点击进入」
+- `TrackDetailModal`：歌曲/歌手详情双视图（#track-detail-modal），hero 区 + DetailGrid 字段网格 + 评论列表/热门歌曲列表
+- `ArtistDetail` DTO + API + repo 方法：网易云用 id、QQ 用 singerMid 分流调用歌手详情接口
+- `LocalBeatModal` MR/DJ 双模式 tab：MR 分析（日常电影视角，48 bars / 900ms）+ DJ 分析（长混音/强节奏，64 bars / 600ms）
+- `CustomLyricModal` 删除按钮：对应桌面版 deleteCustomLyricForCurrent
+- `CollectToPlaylistModal` 新建歌单输入框：对应桌面版 .collect-create
+- `PlaylistPanel` 三 tab 面板（#playlist-panel）：当前队列 / 我的歌单 / 我的播客，含常开 pin、随机、清空、播放模式 chip
+- `TrialBanner` 试听片段横幅（#trial-banner）：随登录态/VIP 等级变化文案，未登录显示扫码登录按钮
+- `BeatChip` 节奏分析角标（#beat-chip）：绿色旋转指示 + 分析文案
+- `AiDepthChip` AI 深度估计角标（#ai-depth-chip）：香槟色旋转指示 + 估计文案
+- `FreeCameraHint` 自由镜头提示（#free-camera-hint）：触屏手势映射说明
+- `GestureHud` 手势 HUD（#gesture-hud）：手势标签 + 确认提示 + 进度条 + 图例（视觉占位，实际手势需摄像头 + ML Kit）
+- `SourceFallbackNotice` 自动换源提示（#source-fallback-notice）：标题 + 说明文案 + 关闭
+- 文件导入（#upload-btn + #file-input）：ActivityResultContracts 多选文件，音频自动入队播放
+- `PlayerController` 新增 `clearQueue()` / `shuffleQueue()`：对应桌面版 clearQueue / shuffleQueue
+- `TopBar` 新增入口：导入、歌单/队列面板、手势 HUD、自由镜头
+
+**P2 BUG 修复**
+- `FxState.overlayColors()` glow 表达式：`visualTintColor ?: primary` 对非空 Color 使用 `?:`，改为 `if (lyricGlowColor != Default) lyricGlowColor else visualTintColor`
+- `SearchSidePanel` 播客模式不显示结果：播客搜索模式仍渲染 `searchResults`（空），改为按 `searchMode` 分流到 `PodcastSearchResults`
+- `LyricStage` / `MiniQueuePopover` O(n) `indexOf` 性能：改用 `itemsIndexed`
+- 视觉引导首次不自动弹出：添加 `LaunchedEffect(Unit)` 检查 `visualGuideSeen`
+- `onPodcastClick` 语义冲突：`togglePodcast()` 打开时重置 `selectedPodcast` 抹掉 `selectPodcast()`，调整调用顺序为先开浮层再选中
+- `importFiles` 类型不匹配：`player.playQueue(songs, songs, 0)` 第二参数应为 `List<String>`，改为 `audio`（URI 列表）
+- `PlayerShell` 缺失 `QueueMusic` 图标导入
+
+**P3 阶段（BUG 修复 + 缺失功能补齐，完整还原收尾）**
+- `PlayerController.clearQueue()` 状态重置不全：仅重置 queue/queueIndex，依赖 MediaController 异步回调清理 current/isPlaying/positionMs/durationMs/error，导致清空后 UI 残留旧曲目标题。改为显式重置全部播放字段
+- `PlayerController.shuffleQueue()` 与 cyclePlayMode 状态机冲突：开启 shuffle 时未处理单曲循环（REPEAT_MODE_ONE），导致 shuffle + 单曲循环语义矛盾。改为开启随机时把单曲循环退回列表循环
+- `importFiles` content:// URI 识别失效：`ActivityResultContracts.GetMultipleContents()` 返回的 MediaStore 风格 URI 不带文件扩展名，`endsWith(".mp3")` 永远 false，导致导入音乐只弹 toast 不入队播放。改用 `ContentResolver` 查询 `OpenableColumns.DISPLAY_NAME` 与 MIME 类型（`audio/*`）双重判定，并 `takePersistableUriPermission` 保证 PlaybackService 跨进程可读
+- 音量控制（#volume-control）完整还原：`PlaybackState` 新增 `volume`/`muted` 字段，`PlayerController` 新增 `setVolume()`/`toggleMute()` 映射到系统 `STREAM_MUSIC`，`BottomControlBar` modes 段新增 `VolumeControl`（按钮 + DropdownMenu 滑块 + 百分比数值），`MainViewModel` 新增 `setVolume`/`toggleMute` action
+- 清除自定义封面（#clear-cover-btn）完整还原：`PlayerController` 新增 `clearArtwork()` 恢复当前曲目原始 artwork，`CoverCropModal` 新增「清除封面」按钮（onClear 回调），`MainViewModel` 新增 `clearCustomCover` action
+- 清理未使用 import：移除 `PlayerShell` 的 `ShelfRenderer` import、`MainViewModel` 的 `Dispatchers` import
+
+**P3 验证**：经 30+ 项引用完整性核查（构造函数 / 工厂 / ContentResolver 调用 / 函数签名 / 跨文件数据流 / 依赖可用性）全部通过，无编译错误。
 
 **渲染管线总览**
 

@@ -15,7 +15,6 @@ import com.mineradio.player.ui.fx.FxArchiveSnapshot
 import com.mineradio.player.ui.fx.FxState
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -146,6 +145,7 @@ data class LyricLine(val timeMs: Long, val text: String)
 class MainViewModel(
     private val repo: MineradioRepository,
     private val player: PlayerController,
+    private val appContext: android.content.Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(UiState())
@@ -769,6 +769,15 @@ class MainViewModel(
     /** 随机打乱队列 —— 对应桌面版 shuffleQueue()。 */
     fun shuffleQueue() = player.shuffleQueue()
 
+    /** 设置音量（0..1）—— 对应桌面版 setVolume()。 */
+    fun setVolume(volume: Float) = player.setVolume(volume)
+
+    /** 静音切换 —— 对应桌面版 toggleMute()。 */
+    fun toggleMute() = player.toggleMute()
+
+    /** 清除自定义封面 —— 对应桌面版 clearCustomCoverForCurrent()。 */
+    fun clearCustomCover() = player.clearArtwork()
+
     // ============ 试听片段提示（对应桌面版 #trial-banner）============
 
     /** 显示试听横幅 —— 桌面版在 song/url 返回 data.trial 时触发。 */
@@ -800,7 +809,11 @@ class MainViewModel(
 
     // ============ 导入音乐/封面文件（对应桌面版 #upload-btn + #file-input）============
 
-    /** 导入本地文件 —— 对应桌面版 handleFileImport(files)。 */
+    /** 导入本地文件 —— 对应桌面版 handleFileImport(files)。
+     *  ActivityResultContracts.GetMultipleContents() 返回的是 content:// URI，
+     *  不能用扩展名判断（多数 MediaStore URI 不带扩展名）。
+     *  这里用 ContentResolver 查询 DISPLAY_NAME 与 MIME 类型识别音频，
+     *  并申请持久化读权限，保证 PlaybackService 跨进程可读。 */
     fun importFiles(uris: List<String>) {
         if (uris.isEmpty()) {
             _state.update { it.copy(toast = "未选择文件") }
@@ -809,18 +822,44 @@ class MainViewModel(
         _state.update {
             it.copy(importedFiles = it.importedFiles + uris, toast = "已导入 ${uris.size} 个文件")
         }
-        // 简单识别：音频文件加入本地播放队列
-        val audio = uris.filter { it.endsWith(".mp3") || it.endsWith(".flac") || it.endsWith(".wav") || it.endsWith(".ogg") || it.endsWith(".m4a") }
+        val resolver = appContext.contentResolver
+        val audioExt = setOf("mp3", "flac", "wav", "ogg", "m4a", "aac", "opus")
+        // 解析为 (uri, displayName) 的音频列表
+        val audio: List<Pair<String, String>> = uris.mapNotNull { uriStr ->
+            val uri = runCatching { android.net.Uri.parse(uriStr) }.getOrNull() ?: return@mapNotNull null
+            // 1) MIME 前缀 audio/* 直接判定为音频
+            val mime = runCatching { resolver.getType(uri) }.getOrNull()
+            val name = runCatching {
+                resolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+                }
+            }.getOrNull() ?: uriStr.substringAfterLast('/').substringBeforeLast('.')
+            val isAudio = mime?.startsWith("audio/") == true ||
+                audioExt.any { name.endsWith(".$it", ignoreCase = true) }
+            if (isAudio) {
+                // 申请持久化读权限（仅 content:// 且含 FLAG_GRANT_READ 时生效）
+                runCatching {
+                    val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    resolver.takePersistableUriPermission(uri, flags)
+                }
+                uriStr to name.substringBeforeLast('.')
+            } else null
+        }
         if (audio.isNotEmpty()) {
-            val songs = audio.mapIndexed { i, uri ->
+            val songs = audio.mapIndexed { i, (uri, name) ->
                 Song(
                     id = -1_000_000L - i,
-                    name = uri.substringAfterLast('/').substringBeforeLast('.'),
+                    name = name.ifBlank { "本地曲目 ${i + 1}" },
                     source = "local",
                     mid = uri,
                 )
             }
-            player.playQueue(songs, audio, 0)
+            val urls = audio.map { it.first }
+            player.playQueue(songs, urls, 0)
+            _state.update { it.copy(toast = "已加入播放队列 ${songs.size} 首") }
+        } else {
+            _state.update { it.copy(toast = "未识别到音频文件") }
         }
     }
 
@@ -970,6 +1009,6 @@ class MainViewModel(
 class MainViewModelFactory(private val app: MineradioApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(app.repository, app.playerController) as T
+        return MainViewModel(app.repository, app.playerController, app.applicationContext) as T
     }
 }

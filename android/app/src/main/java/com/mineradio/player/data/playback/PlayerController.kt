@@ -40,6 +40,10 @@ class PlayerController(private val context: Context) {
         val repeatMode: Int = Player.REPEAT_MODE_OFF,
         // 随机播放（桌面版 playMode=='shuffle' 时为 true）
         val shuffle: Boolean = false,
+        // 音量（0..1，对应桌面版 #volume-slider，移动端映射到 STREAM_MUSIC）
+        val volume: Float = 1f,
+        // 静音（对应桌面版 toggleMute）
+        val muted: Boolean = false,
     )
 
     private val _state = MutableStateFlow(PlaybackState())
@@ -49,6 +53,9 @@ class PlayerController(private val context: Context) {
     private var controller: MediaController? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var progressJob: Job? = null
+    private val audioManager by lazy {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    }
 
     fun connect() {
         if (controllerFuture != null) return
@@ -101,7 +108,15 @@ class PlayerController(private val context: Context) {
             }
         })
         // 初始同步一次当前播放器配置
-        _state.update { it.copy(repeatMode = c.repeatMode, shuffle = c.shuffleModeEnabled) }
+        val initVol = currentStreamVolumeFraction()
+        _state.update {
+            it.copy(
+                repeatMode = c.repeatMode,
+                shuffle = c.shuffleModeEnabled,
+                volume = initVol,
+                muted = initVol <= 0f,
+            )
+        }
     }
 
     private fun startProgress() {
@@ -166,20 +181,66 @@ class PlayerController(private val context: Context) {
         _state.update { it.copy(shuffle = enabled) }
     }
 
-    /** 清空播放队列并停止播放 —— 对应桌面版 clearQueue()。 */
+    /** 清空播放队列并停止播放 —— 对应桌面版 clearQueue()。
+     *  显式重置全部播放字段，避免依赖 MediaController 异步回调造成状态残留。 */
     fun clearQueue() {
         val c = controller ?: return
         c.clearMediaItems()
         c.stop()
-        _state.update { it.copy(queue = emptyList(), queueIndex = -1) }
+        _state.update {
+            it.copy(
+                queue = emptyList(),
+                queueIndex = -1,
+                current = null,
+                isPlaying = false,
+                positionMs = 0L,
+                durationMs = 0L,
+                error = null,
+            )
+        }
     }
 
-    /** 随机打乱当前队列顺序 —— 对应桌面版 shuffleQueue()。
-     *  移动端使用 ExoPlayer 内置 shuffle 模式（等价于重排播放顺序）。 */
+    /** 启用随机播放 —— 对应桌面版 shuffleQueue()。
+     *  移动端使用 ExoPlayer 内置 shuffle 模式重排播放顺序（不改动 UI 队列展示顺序）。
+     *  与 cyclePlayMode 状态机保持一致：开启随机时把单曲循环退回列表循环，避免语义冲突。 */
     fun shuffleQueue() {
         val c = controller ?: return
         c.shuffleModeEnabled = true
-        _state.update { it.copy(shuffle = true) }
+        if (c.repeatMode == Player.REPEAT_MODE_ONE) {
+            c.repeatMode = Player.REPEAT_MODE_ALL
+        }
+        _state.update {
+            it.copy(
+                shuffle = true,
+                repeatMode = if (it.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ALL else it.repeatMode,
+            )
+        }
+    }
+
+    /** 设置音量 —— 对应桌面版 setVolume(volume)。
+     *  volume 范围 0..1，映射到 STREAM_MUSIC 的最大音量档位。 */
+    fun setVolume(volume: Float) {
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val target = (volume.coerceIn(0f, 1f) * max).toInt().coerceIn(0, max)
+        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
+        _state.update { it.copy(volume = target.toFloat() / max, muted = target <= 0) }
+    }
+
+    /** 静音切换 —— 对应桌面版 toggleMute()。 */
+    fun toggleMute() {
+        if (_state.value.muted) {
+            // 取消静音：恢复到中等音量（避免 0 后无法拖回）
+            setVolume(0.5f)
+        } else {
+            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
+            _state.update { it.copy(volume = 0f, muted = true) }
+        }
+    }
+
+    private fun currentStreamVolumeFraction(): Float {
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val cur = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).coerceIn(0, max)
+        return cur.toFloat() / max
     }
 
     /**
@@ -197,6 +258,23 @@ class PlayerController(private val context: Context) {
             val uri = android.net.Uri.fromFile(file)
             val newMeta = current.mediaMetadata.buildUpon()
                 .setArtworkUri(uri)
+                .build()
+            val newItem = current.buildUpon().setMediaMetadata(newMeta).build()
+            val idx = c.currentMediaItemIndex
+            c.replaceMediaItem(idx, newItem)
+        }
+    }
+
+    /** 清除自定义封面，恢复当前曲目的原始 artwork —— 对应桌面版 clearCustomCoverForCurrent()。 */
+    fun clearArtwork() {
+        val c = controller ?: return
+        val current = c.currentMediaItem ?: return
+        val song = _state.value.current ?: return
+        runCatching {
+            val newMeta = current.mediaMetadata.buildUpon()
+                .setArtworkUri(
+                    if (song.displayCover.isNotEmpty()) android.net.Uri.parse(song.displayCover) else null,
+                )
                 .build()
             val newItem = current.buildUpon().setMediaMetadata(newMeta).build()
             val idx = c.currentMediaItemIndex

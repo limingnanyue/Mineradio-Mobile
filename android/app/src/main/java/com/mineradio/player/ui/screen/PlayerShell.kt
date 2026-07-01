@@ -61,7 +61,6 @@ import com.mineradio.player.data.api.dto.Song
 import com.mineradio.player.render.GalaxyState
 import com.mineradio.player.render.ParticleGalaxyBackground
 import com.mineradio.player.render.Shelf3DPanel
-import com.mineradio.player.render.ShelfRenderer
 import com.mineradio.player.ui.MainViewModel
 import com.mineradio.player.ui.Screen
 import com.mineradio.player.ui.UiState
@@ -264,6 +263,10 @@ fun PlayerShell(
             onCollectToPlaylist = vm::collectCurrentToPlaylist,
             onCreatePlaylist = vm::createPlaylist,
             onDismissCollect = vm::toggleCollect,
+            volume = playback.volume,
+            muted = playback.muted,
+            onVolumeChange = vm::setVolume,
+            onToggleMute = vm::toggleMute,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp),
@@ -348,7 +351,12 @@ fun PlayerShell(
         }
         AnimatedVisibility(visible = state.showCoverCrop, enter = fadeIn(), exit = fadeOut()) {
             if (coverBitmap != null) {
-                CoverCropModal(bitmap = coverBitmap, onCommit = vm::commitCoverCrop, onDismiss = vm::toggleCoverCrop)
+                CoverCropModal(
+                    bitmap = coverBitmap,
+                    onCommit = vm::commitCoverCrop,
+                    onDismiss = vm::toggleCoverCrop,
+                    onClear = vm::clearCustomCover,
+                )
             } else {
                 DiyOverlayPanel(title = "裁剪封面", onClose = vm::toggleCoverCrop) {
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
