@@ -3,7 +3,7 @@ package com.mineradio.player.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -94,8 +94,7 @@ fun LyricStage(
             verticalArrangement = Arrangement.spacedBy(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            items(lines) { line ->
-                val idx = lines.indexOf(line)
+            itemsIndexed(lines) { idx, line ->
                 val isActive = idx == currentIdx
                 Text(
                     text = line.text,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -366,8 +367,7 @@ private fun MiniQueuePopover(
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(queue) { song ->
-                    val idx = queue.indexOf(song)
+                itemsIndexed(queue) { idx, song ->
                     Row(
                         Modifier
                             .fillMaxWidth()

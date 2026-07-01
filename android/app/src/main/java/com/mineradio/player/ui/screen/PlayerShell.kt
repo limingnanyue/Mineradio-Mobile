@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -41,12 +43,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.size.Size
 import androidx.core.graphics.drawable.toBitmap
+import com.mineradio.player.data.api.dto.Podcast
 import com.mineradio.player.data.api.dto.Song
 import com.mineradio.player.render.GalaxyState
 import com.mineradio.player.render.ParticleGalaxyBackground
@@ -95,6 +99,13 @@ fun PlayerShell(
             }.getOrNull()
         } else {
             coverBitmap = null
+        }
+    }
+
+    // 首次进入自动弹出视觉引导（对应桌面版 onboarding 检查 localStorage.visualGuideSeen）
+    LaunchedEffect(Unit) {
+        if (!state.visualGuideSeen && !state.showVisualGuide) {
+            vm.toggleVisualGuide()
         }
     }
 
@@ -682,15 +693,89 @@ private fun SearchSidePanel(
 ) {
     GlassPanel(modifier = modifier, cornerRadius = 28) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("搜索结果", color = MineradioColors.FcInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            LikeableSongList(
-                songs = state.searchResults,
-                likedMap = state.likedSongMap,
-                onSongClick = onSongClick,
-                onToggleLike = vm::toggleLike,
-                onCheckLikes = vm::checkLikes,
+            val isPodcastMode = state.searchMode == "podcast"
+            Text(
+                if (isPodcastMode) "播客结果" else "搜索结果",
+                color = MineradioColors.FcInk,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
             )
+            Spacer(Modifier.height(8.dp))
+            if (state.searchLoading) {
+                Text("搜索中…", color = MineradioColors.FcMuted, fontSize = 12.sp)
+            } else if (isPodcastMode) {
+                PodcastSearchResults(
+                    podcasts = state.podcastSearchResults,
+                    onPodcastClick = vm::selectPodcast,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                LikeableSongList(
+                    songs = state.searchResults,
+                    likedMap = state.likedSongMap,
+                    onSongClick = onSongClick,
+                    onToggleLike = vm::toggleLike,
+                    onCheckLikes = vm::checkLikes,
+                )
+            }
+        }
+    }
+}
+
+/** 播客搜索结果列表（点击进入播客详情）。 */
+@Composable
+private fun PodcastSearchResults(
+    podcasts: List<Podcast>,
+    onPodcastClick: (Podcast) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (podcasts.isEmpty()) {
+        Text("暂无播客结果", color = MineradioColors.FcMuted, fontSize = 12.sp)
+        return
+    }
+    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        items(podcasts) { pod ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onPodcastClick(pod) }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(MineradioColors.GlassDark),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!pod.cover.isNullOrEmpty()) {
+                        coil.compose.AsyncImage(
+                            model = pod.cover,
+                            contentDescription = pod.name,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Icon(Icons.Filled.GraphicEq, null, tint = MineradioColors.FcMuted, modifier = Modifier.size(20.dp))
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        pod.name,
+                        color = MineradioColors.FcInk,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${pod.dj?.nickname ?: "未知主播"}  ·  ${pod.programCount} 期",
+                        color = MineradioColors.FcMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

@@ -84,7 +84,10 @@ data class FxState(
         val primary = if (lyricColorMode == "custom") lyricColor else LyricColorPresets.DefaultPrimary
         val secondary = if (lyricColorMode == "custom") visualTintColor else LyricColorPresets.DefaultSecondary
         val highlight = if (lyricColorMode == "custom") lyricHighlightColor else LyricColorPresets.DefaultHighlight
-        val glow = if (lyricColorMode == "custom") (lyricGlowColor.takeIf { it != Color(0xFF9DB8CF) } ?: visualTintColor ?: primary) else LyricColorPresets.DefaultGlow
+        val glow = if (lyricColorMode == "custom") {
+            // glow 未被用户单独修改（仍等于默认银蓝）时退回到次级色，保持配色协调
+            if (lyricGlowColor != Color(0xFF9DB8CF)) lyricGlowColor else visualTintColor
+        } else LyricColorPresets.DefaultGlow
         return OverlayColors(primary, secondary, highlight, glow)
     }
 
