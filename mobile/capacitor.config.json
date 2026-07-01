@@ -1,0 +1,36 @@
+{
+  "appId": "com.mineradio.mobile",
+  "appName": "Mineradio",
+  "webDir": "../public",
+  "backgroundColor": "#050608",
+  "ios": {
+    "contentInset": "always",
+    "scrollEnabled": false,
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "hostname": "mineradio.local"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#050608",
+      "overlaysWebView": true
+    },
+    "Keyboard": {
+      "resize": "native",
+      "style": "DARK",
+      "resizeOnFullScreen": true
+    },
+    "Browser": {
+      "preferredContentMode": "mobile"
+    }
+  }
+}

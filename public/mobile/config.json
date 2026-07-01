@@ -1,0 +1,7 @@
+{
+  "backendUrl": "",
+  "backendUrlHint": "留空则使用本地 nodejs-mobile；填写则指向自建后端。例如 https://mineradio.example.com （不要带末尾斜杠）",
+  "allowHttpBackend": true,
+  "allowHttpBackendHint": "true 时允许 http:// 后端，用于局域网调试；生产环境请用 https 并设为 false",
+  "version": "1.1.1"
+}

@@ -1,0 +1,38 @@
+# Mineradio 移动端后端 —— 一键启动
+#
+# 用法：
+#   1. cp .env.example .env  并按需修改
+#   2. docker compose up -d --build
+#   3. 在移动端 App「设置 → 后端地址」填 https://你的服务器域名
+#
+# 生产环境务必在前面套一层反向代理（nginx / Caddy）做 HTTPS 终止，
+# 因为 iOS ATS 默认禁止明文 HTTP。
+services:
+  mineradio-backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    image: mineradio-backend:1.1.1
+    container_name: mineradio-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - mineradio-data:/data
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      # 可选：固定一个对外版本号（默认读 package.json）
+      MINERADIO_VERSION: ${MINERADIO_VERSION:-1.1.1}
+      # 更新源（移动端不需要自更新，可留空；保留兼容桌面版逻辑）
+      MINERADIO_UPDATE_DIR: /data/updates
+      MINERADIO_UPDATE_DOWNLOAD_DIR: /data/updates/downloads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/app/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mineradio-data:

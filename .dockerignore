@@ -1,0 +1,18 @@
+# 让 Docker 构建上下文保持精简，避免把本地 node_modules / dist / 移动端原生工程打进镜像。
+node_modules/
+dist/
+dist-*/
+mobile/ios/
+mobile/android/
+.git/
+.gitignore
+*.log
+.env
+.env.*
+docs/
+build/after-pack.js
+build/installer.nsh
+build/installerHeader.bmp
+build/installerSidebar.bmp
+# 桌面端 Electron 产物 —— 后端镜像不需要
+desktop/

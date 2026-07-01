@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fc_bg">#08090B</color>
+    <color name="fc_paper">#0E1014</color>
+    <color name="fc_accent">#00F5D4</color>
+    <color name="chill_ink">#030608</color>
+    <color name="wallpaper_bg">#050608</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+</resources>

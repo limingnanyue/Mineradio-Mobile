@@ -1,108 +1,248 @@
-# Mineradio
+# Mineradio-Mobile
 
-![Mineradio 暗场启动页](./docs/assets/readme/cinema-beat-smoke.png)
+> Mineradio 移动端适配版 —— 在桌面版 Electron 播放器基础上，新增 **原生 Android (Kotlin Jetpack Compose)**、**Capacitor WebView 壳** 与 **Docker 后端** 三套移动端方案，UI 与功能与桌面版完全对齐。
 
-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、搜索播放、歌词舞台、粒子视觉和 3D 歌单架组合成一个更接近现场感的私人音乐空间。
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Capacitor%20%7C%20Electron%20%7C%20Docker-lightgrey.svg)]()
+[![Original](https://img.shields.io/badge/upstream-XxHuberrr%2FMineradio-orange.svg)](https://github.com/XxHuberrr/Mineradio)
 
-## 立即下载 Windows 安装包
+---
 
-> 国内 GitHub 小白用户：优先使用蓝奏云下载，打开链接后直接下载 `Mineradio-1.1.1-Setup.exe`，速度通常比 GitHub Release 更稳、更接近满速。
+## 📖 项目说明
 
-| 下载入口 | 推荐人群 | 链接 |
-| --- | --- | --- |
-| 蓝奏云满速下载 | 国内用户优先 | [下载 Mineradio 1.1.1 安装包](https://xxhuber.lanzout.com/s/Mineradio) |
-| GitHub Release 备用 | 能稳定访问 GitHub 的用户 | [v1.1.1 Release](https://github.com/XxHuberrr/Mineradio/releases/tag/v1.1.1) |
+### 来源与开源声明
 
-安装时只需要下载并运行 `Mineradio-1.1.1-Setup.exe`。不要下载 `Source code`、`.blockmap`、`latest.yml`，也不要把 `win-unpacked` 当成正式安装包。
+本项目是 [**XxHuberrr/Mineradio**](https://github.com/XxHuberrr/Mineradio)（桌面版 Electron 音乐播放器）的 **社区移动端移植分支**，由移动端适配工作独立完成，遵循原项目 [GPL-3.0](./LICENSE) 协议开源。
 
-## 下载或安装被拦截怎么办
+- **上游原始项目**：<https://github.com/XxHuberrr/Mineradio>
+- **本仓库新增内容**：`android/`（原生 Kotlin Compose 工程）、`mobile/`（Capacitor 壳配置）、`public/mobile/`（WebView 桥接层）、`backend/`（Docker 部署文件）
+- **桌面版代码**：`desktop/`、`public/index.html`、`server.js` 等保持上游原貌，零侵入
+- **License**：GPL-3.0（与上游一致），任何二次分发必须保留本声明与协议
 
-小众 Electron 桌面软件、未签名安装包有时会被浏览器、Windows Defender 或 SmartScreen 提示风险。请先确认安装包来自上面的蓝奏云或 GitHub Release 官方入口，文件名是 `Mineradio-1.1.1-Setup.exe`。
+如上游作者认为本移植分支有任何不妥，请联系本仓库维护者处理。
 
-1. 浏览器下载栏提示风险时，打开下载列表，点这条下载右侧的 `...` 三个点，选择 `保留` / `仍要保留` / `显示更多` 后继续保留。
-2. Windows SmartScreen 弹出蓝色拦截窗口时，点 `更多信息`，再点 `仍要运行`。
-3. 如果杀毒软件明确显示木马、高危或已经隔离，不要强行运行；删除该文件后重新从蓝奏云或 GitHub Release 下载，仍然异常请带截图反馈给作者。
+### 移动端方案对比
 
-## 作者支持
+本仓库同时提供两套移动端方案，可按需选择其一或共存：
 
-如果 Mineradio 陪你多听了一首歌，也欢迎请作者一杯咖啡。
+| 方案 | 路径 | 特点 | 适用场景 |
+|------|------|------|----------|
+| **原生 Android** | `android/` | Kotlin + Jetpack Compose + OpenGL ES 2.0 + Media3 ExoPlayer，3D 粒子星河背景与 3D 歌单架均为真 OpenGL 渲染 | 追求原生性能、3D 视觉、MediaSession 通知栏集成的场景 |
+| **Capacitor 壳** | `mobile/` + `public/mobile/` | 复用桌面版前端 WebView，桥接层在非 Capacitor 环境完全 no-op，桌面版零影响 | 想以最小改动跑现有前端、快速出移动端的场景 |
+| **Docker 后端** | `backend/` | 复用原 `server.js`，通过环境变量重映射路径到 `/data`，含健康检查与 `.env.example` | 远程部署后端供移动端连接的场景 |
 
-[查看完整支持页](./docs/SUPPORT.md)
+### 原生 Android 工程要点
 
-![Mineradio 作者支持渠道](./docs/assets/support/mineradio-author-support-poster.png)
+- **包名**：`com.mineradio.player`
+- **构建**：Gradle 8.9 + AGP 8.5.2 + Kotlin 2.0.20 + Compose BOM 2024.09
+- **3D 视觉**：`ParticleGalaxyBackground` / `Shelf3DPanel` / `ShelfRenderer` 均为 `GLSurfaceView` + GLES2 + 自写 GLSL，1:1 移植 `wallpaper.html` 粒子星系
+- **播放服务**：`PlaybackService` 继承 `MediaSessionService`，自动持有前台通知 + 锁屏媒体控件（替代桌面歌词悬浮窗）
+- **UI 完整度**：底栏 1:1 复刻桌面版 `#bottom-bar` 三段式（actions / transport / modes），DIY 配置真正驱动歌词与粒子背景渲染
 
-1.1.1 的核心目标是把 Mineradio 重新整理成一份可公开下载的纯净安装版：默认视觉参数来自内置「默认测试」用户存档，首次启动就进入统一的视觉手感；3D 歌单架、歌词层级、用户存档和后台性能策略都在同一轮里收口。
+---
 
-## 当前版本
+## 🛠️ 打包与编译方法
 
-当前版本：`1.1.1`
+### 一、原生 Android APK 编译（推荐）
 
-状态：1.1.1 纯净安装发布版。
+#### 方式 A：Android Studio（最简单，推荐新手）
 
-> 安全提示：`v1.0.10` 及更早旧安装包不再建议继续安装或传播，请先隔离旧安装包。请使用本页提供的 `Mineradio-1.1.1-Setup.exe` 进行纯净安装。
+1. **安装 Android Studio**（Hedgehog 2023.1.1 或更高版本）：
+   - 下载：<https://developer.android.com/studio>
+   - 安装时勾选 **Android SDK**、**Android SDK Platform-Tools**、**Android Emulator**
 
-## 核心特性
+2. **打开工程**：
+   - `File → Open` → 选择 `android/` 目录
+   - 等待 Gradle Sync 完成（首次会下载约 1.5GB 依赖，需联网）
 
-- Open-Meteo 天气电台，根据当前位置、城市和天气 mood 生成更合适的播放队列
-- 首页包含天气电台、每日推荐、私人电台、继续听、听歌画像和我的歌单入口
-- Wallpaper 银河首页背景，未播放状态保持干净的星河氛围
-- 播放后切换到 Emily / 默认播放态视觉，歌词舞台与粒子舞台同步工作
-- 基于节奏的电影镜头视觉系统
-- 面向长播客和 DJ 曲目的专属视觉模式
-- 歌词舞台、自定义歌词、歌词位置与视觉控制
-- 自定义专辑封面上传与裁剪
-- 右键唤起 3D 歌单架，支持歌单队列浏览
-- 网易云音乐账号、搜索、歌单、播客等体验接入
-- QQ 音乐搜索、登录态与音源补充接入
-- GitHub Releases 更新检测与下载入口
-- 首次启动内置「默认测试」视觉用户存档，软件内默认视觉参数与该存档一致
+3. **配置签名**（发布版必需）：
+   - `Build → Generate Signed Bundle / APK → APK`
+   - 首次需 `Create new...` 一个 keystore（妥善保管，丢失则无法升级）
+   - 选 `release` Build Variant，勾选 V1/V2 签名
 
-## 使用说明
+4. **打包**：
+   - `Build → Build Bundle(s) / APK(s) → Build APK(s)`
+   - 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`（debug）
+   - 或 `app/release/app-release.apk`（release）
 
-Windows 用户可以在 GitHub Releases 中下载安装包。
+5. **安装到设备**：
+   ```bash
+   adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+   ```
 
-正式分发以 `Mineradio-1.1.1-Setup.exe` 为准，不建议直接下载 `win-unpacked` 目录作为正式分发包。安装包会创建桌面快捷方式；直接运行打包版 `Mineradio.exe` 时，应用也会在首次启动时补创建桌面快捷方式。
-
-已经安装过旧版本的用户，建议卸载旧版本、隔离旧安装包后，再使用 `v1.1.1` 安装包纯净安装。
-
-## 开发运行
+#### 方式 B：命令行 Gradle（CI / 自动化推荐）
 
 ```bash
+# 进入 android 目录
+cd android
+
+# 1. 确保环境：JDK 17、Android SDK、ANDROID_HOME 已配置
+java -version          # 需要 17+
+echo $ANDROID_HOME     # 例如 ~/Android/Sdk
+
+# 2. 调试版打包（无需签名，可直接安装）
+./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+
+# 3. 发布版打包（需先在 app/build.gradle.kts 配置签名）
+./gradlew assembleRelease
+# 产物：app/build/outputs/apk/release/app-release.apk
+
+# 4. 清理
+./gradlew clean
+```
+
+#### 配置签名（命令行 release 必需）
+
+在 `android/app/build.gradle.kts` 的 `android { signingConfigs { ... } }` 中加入：
+
+```kotlin
+signingConfigs {
+    create("release") {
+        storeFile = file(System.getenv("KEYSTORE_PATH") ?: "release.keystore")
+        storePassword = System.getenv("KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("KEY_ALIAS")
+        keyPassword = System.getenv("KEY_PASSWORD")
+    }
+}
+buildTypes {
+    release {
+        signingConfig = signingConfigs.getByName("release")
+        isMinifyEnabled = true
+        proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
+}
+```
+
+然后导出环境变量后打包：
+```bash
+export KEYSTORE_PATH=/path/to/release.keystore
+export KEYSTORE_PASSWORD=******
+export KEY_ALIAS=******
+export KEY_PASSWORD=******
+./gradlew assembleRelease
+```
+
+#### 配置后端地址
+
+APK 安装后，启动 App → 顶部齿轮「设置」→ 填入后端地址（默认为空）。后端可：
+- 本地用 Node 起 `node server.js`（同 WiFi 调试）
+- 远程用下方 Docker 部署
+
+---
+
+### 二、Capacitor 壳打包（复用前端 WebView）
+
+```bash
+# 1. 进入 mobile 目录
+cd mobile
+
+# 2. 安装依赖并生成原生壳
+npm install
+npx cap add android     # 首次生成 android 壳（与上层 android/ 目录无关，互不干扰）
+# 或 npx cap add ios
+
+# 3. 把前端资源同步到原生壳
+npm run sync            # 等价于 npx cap copy
+
+# 4. 用 Android Studio 打开生成的工程打包
+npx cap open android
+# 后续步骤同「原生 Android」方式 A
+```
+
+> ⚠️ 注意：根目录的 `android/` 是独立原生 Kotlin 工程，与 `mobile/android/`（Capacitor 自动生成）是两套，请勿混淆。
+
+---
+
+### 三、Docker 后端部署
+
+```bash
+cd backend
+
+# 1. 复制环境变量模板并按需修改
+cp .env.example .env
+# 编辑 .env：PORT=3000、DATA_DIR=/data、MEDIA_ROOT=/data/media 等
+
+# 2. 一键启动（含健康检查 + 自动重启）
+docker compose up -d
+
+# 3. 查看日志
+docker compose logs -f
+
+# 4. 升级 / 重建
+docker compose pull && docker compose up -d
+```
+
+部署后，移动端「设置」填入 `http://<服务器IP>:3000` 即可连接。
+
+---
+
+### 四、桌面版（参考，未改动）
+
+```bash
+# 开发模式
 npm install
 npm start
+
+# 打包 Windows 安装包
 npm run build:win
 ```
 
-桌面版入口由 Electron 主进程加载本地服务。`npm run build:win` 会生成 Windows NSIS 安装包，产物位于 `dist/`。
+桌面版入口、依赖、构建脚本均与上游一致，本仓库未做任何修改。
 
-## 更新机制
+---
 
-Mineradio 会请求 GitHub Releases latest 检测新版本。远端版本高于本地版本时，应用内更新入口会展示 Release 内容、下载安装包到本机用户数据目录，并通过系统打开安装包。
+## 📁 项目结构
 
-本地验证更新链路时，可以通过 `MINERADIO_UPDATE_MANIFEST` 指向一个本地 manifest JSON 或 HTTP 地址来模拟线上 Release。
+```
+Mineradio-Mobile/
+├── android/              # 【新增】原生 Android Kotlin Compose 工程
+│   ├── app/
+│   │   └── src/main/java/com/mineradio/player/
+│   │       ├── data/         # API / 播放服务 / 仓库
+│   │       ├── render/       # OpenGL ES 粒子星河 + 3D 歌单架
+│   │       ├── ui/           # Compose UI（screen / component / fx / theme）
+│   │       └── MainActivity.kt
+│   ├── build.gradle.kts
+│   └── settings.gradle.kts
+├── mobile/               # 【新增】Capacitor 壳配置
+│   ├── capacitor.config.json
+│   └── package.json
+├── public/
+│   ├── mobile/           # 【新增】WebView 桥接层（mobile.css / mobile-bridge.js / mobile-init.js）
+│   ├── index.html        # 桌面版前端（仅 +4 行引入移动端桥接，桌面/浏览器完全 no-op）
+│   └── ...
+├── backend/              # 【新增】Docker 部署
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── .env.example
+├── desktop/              # 桌面版 Electron 主进程（上游原貌）
+├── server.js             # Node 服务端（上游原貌，Docker 复用）
+├── package.json
+└── LICENSE               # GPL-3.0
+```
 
-## 第三方音乐平台说明
+---
 
-Mineradio 不是网易云音乐、QQ 音乐或腾讯音乐娱乐集团的官方客户端，也不隶属于任何音乐平台。
+## 🤝 致谢
 
-项目中的第三方平台接入仅用于个人学习、本地客户端体验和用户自有账号的播放辅助。请遵守对应平台的用户协议、版权规则和会员权益规则。项目不会提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+- **上游项目**：[XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio) —— 提供完整的桌面版播放器、3D 视觉、登录、歌单、播客等核心逻辑
+- **依赖开源项目**：
+  - [Jetpack Compose](https://developer.android.com/jetpack/compose) — Android 声明式 UI
+  - [Media3 / ExoPlayer](https://github.com/androidx/media) — 媒体播放
+  - [Coil](https://github.com/coil-kt/coil) — 图片加载
+  - [Retrofit](https://github.com/square/retrofit) — HTTP 客户端
+  - [Three.js](https://threejs.org/) — 桌面版 3D 引擎
+  - [Capacitor](https://capacitorjs.com/) — WebView 壳
+  - [Electron](https://www.electronjs.org/) — 桌面端框架
 
-## 用户数据与隐私
+---
 
-登录 Cookie、搜索历史、自定义封面、自定义歌词、节奏分析缓存等数据只应保存在本机用户数据目录或浏览器本地存储中，不应提交到仓库。
+## 📜 协议
 
-更多说明见 [PRIVACY.md](./PRIVACY.md)。
+[GPL-3.0](./LICENSE) © 上游 XxHuberrr 与本仓库贡献者。
 
-## 致谢
-
-Mineradio 由 XxHuberrr 主要设计与打造。emily 作为早期视觉底层想法与 `emily` 视觉预设改进方向的共创者和灵感来源之一，特此感谢。
-
-同时感谢小天才e宝、应春日、锋将军、軌跡、林中、骊、风痕、花椰菜🥦在早期体验、测试反馈和发布准备中的帮助。
-
-## 版权与授权
-
-Copyright (C) 2026 XxHuberrr.
-
-本项目采用 GPL-3.0 授权。详见 [LICENSE](./LICENSE)。
-
-MR Logo、Mineradio 名称、界面视觉设计与原创视觉表达归作者所有；第三方依赖和第三方服务分别遵循其各自授权与服务条款。
+任何二次分发、修改、商用必须：
+1. 保留本协议与版权声明
+2. 开源衍生代码
+3. 注明上游与本仓库来源

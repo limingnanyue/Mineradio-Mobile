@@ -1,0 +1,213 @@
+/*!
+ * Mineradio mobile CSS — 移动端适配样式。
+ *
+ * 约束（与用户要求一致）：
+ *  - 不修改任何既有视觉设计（颜色、尺寸、字体、布局比例、质感全部保持桌面版原样）。
+ *  - 仅做移动端必需的适配：安全区避让、触控行为、视口尺寸、点击高亮、长按菜单、
+ *    输入法弹起等。这些属性在桌面版下不可见/不生效，确保桌面版零影响。
+ *
+ * 仅在 html.mineradio-mobile 时生效（由 mobile-bridge.js 注入该 class）。
+ * Electron 桌面 / 普通浏览器无此 class，本文件完全 no-op。
+ */
+
+/* ============================================================
+ *  视口与安全区
+ * ============================================================ */
+html.mineradio-mobile {
+  /* iOS Safari 100vh 抖动修正：优先用 dvh，回退 fill-available */
+  --mr-vh: 100vh;
+}
+@supports (height: 100dvh) {
+  html.mineradio-mobile { --mr-vh: 100dvh; }
+}
+html.mineradio-mobile, html.mineradio-mobile body {
+  height: 100vh;
+  height: 100dvh;
+  height: -webkit-fill-available;
+  width: 100vw;
+  width: 100dvw;
+  /* 关闭 iOS 文本自动放大与横屏缩放 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* 关闭长按选择 / 菜单 / 朗读气泡（App 化手感） */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  /* 关闭过度滚动回弹（保留内部滚动区自有手感） */
+  overscroll-behavior: none;
+}
+
+/* 安全区变量（供下方各处复用） */
+html.mineradio-mobile {
+  --mr-safe-top: env(safe-area-inset-top, 0px);
+  --mr-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mr-safe-left: env(safe-area-inset-left, 0px);
+  --mr-safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* 桌面壳层安全区避让：让整体内容避开刘海/灵动岛/底部 Home Indicator。
+   不改 shell 自身圆角/阴影/背景，仅在固定定位上做内缩，视觉与桌面版一致。 */
+html.mineradio-mobile body.desktop-shell #desktop-window-shell {
+  /* 桌面版用 inset:0；移动端改为安全区内缩，保证内容不被状态栏/Home 条遮挡 */
+  top: var(--mr-safe-top);
+  bottom: var(--mr-safe-bottom);
+  left: var(--mr-safe-left);
+  right: var(--mr-safe-right);
+  /* 移动端永远全屏，去掉桌面版的窗口圆角与投影（这是适配，非视觉改型） */
+  border-radius: 0 !important;
+  clip-path: none !important;
+  box-shadow: none !important;
+}
+html.mineradio-mobile body.desktop-shell.desktop-maximized #desktop-window-shell,
+html.mineradio-mobile body.desktop-shell.desktop-fullscreen #desktop-window-shell {
+  /* 与上方一致，保持移动端全屏无圆角 */
+  border-radius: 0 !important;
+  clip-path: none !important;
+  box-shadow: none !important;
+}
+
+/* 标题栏在移动端不参与窗口拖拽（-webkit-app-region 在移动端本就忽略），
+   但要确保它不阻挡触控：保留其 pointer-events 规则原样，仅做安全区下移。 */
+html.mineradio-mobile body.desktop-shell #desktop-titlebar {
+  top: var(--mr-safe-top);
+  height: 44px;
+  /* 移动端标题栏左右也避让安全区 */
+  padding-left: calc(12px + var(--mr-safe-left));
+  padding-right: calc(12px + var(--mr-safe-right));
+}
+
+/* 顶部搜索区 / toast / chip 等固定定位元素统一避让顶部安全区
+   （这些元素在桌面版用 top:34px / top:58px 等绝对值，移动端叠加安全区高度） */
+html.mineradio-mobile body.desktop-shell #search-area.peek { top: calc(34px + var(--mr-safe-top)); }
+html.mineradio-mobile body.desktop-shell #search-area.stage-mode.peek { top: calc(32px + var(--mr-safe-top)); }
+html.mineradio-mobile body.desktop-shell #top-right { top: calc(58px + var(--mr-safe-top)); right: calc(24px + var(--mr-safe-right)); }
+html.mineradio-mobile body.desktop-shell #trial-banner { top: calc(112px + var(--mr-safe-top)); }
+html.mineradio-mobile body.desktop-shell #ai-depth-chip { top: calc(112px + var(--mr-safe-top)); }
+html.mineradio-mobile body.desktop-shell #beat-chip { top: calc(154px + var(--mr-safe-top)); }
+html.mineradio-mobile body.desktop-shell #toast { top: calc(60px + var(--mr-safe-top)); }
+
+/* 全屏 DIY 浮区避让 */
+html.mineradio-mobile #fullscreen-diy-zone {
+  top: calc(var(--fullscreen-diy-top, 24px) + var(--mr-safe-top));
+  left: calc(var(--fullscreen-diy-left, calc(100vw - 510px)) - var(--mr-safe-right));
+}
+
+/* ============================================================
+ *  触控行为优化（不改视觉，只改手感）
+ * ============================================================ */
+/* 所有可交互元素：去掉点击高亮、长按菜单，统一 touch-action。
+   对纯展示元素保持默认，避免阻断滚动。 */
+html.mineradio-mobile button,
+html.mineradio-mobile [role="button"],
+html.mineradio-mobile .desktop-window-btn,
+html.mineradio-mobile .desktop-mode-btn,
+html.mineradio-mobile .glass-saved-button,
+html.mineradio-mobile a,
+html.mineradio-mobile [data-action],
+html.mineradio-mobile [data-window-action] {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+/* 内部可滚动区域恢复 pan-y，保证列表/歌单架可纵向滑动 */
+html.mineradio-mobile [style*="overflow:auto"],
+html.mineradio-mobile [style*="overflow-y:auto"],
+html.mineradio-mobile [style*="overflow: scroll"],
+html.mineradio-mobile .scroll,
+html.mineradio-mobile [class*="scroll"] {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 封面裁剪舞台保持桌面版已设的 touch-action（不覆盖 .cover-crop-stage） */
+
+/* 输入框允许选中和缩放（移动端输入体验） */
+html.mineradio-mobile input,
+html.mineradio-mobile textarea,
+html.mineradio-mobile [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================
+ *  触控目标最小尺寸（仅对过小按钮补足，不改变既有视觉尺寸）
+ *  - 仅当元素自身尺寸 < 36px 时通过 min-height/min-width 补到 36px，
+ *    用 padding-box 撑大可点区域而不改视觉外观（背景仍按原尺寸绘制）。
+ *  - 使用 :not() 排除已有大尺寸的元素，避免影响布局。
+ * ============================================================ */
+html.mineradio-mobile .desktop-window-btn {
+  /* 桌面版 38x30，移动端补到 38x36 让更易点 */
+  min-height: 36px;
+}
+
+/* ============================================================
+ *  输入法 / 软键盘
+ * ============================================================ */
+/* 键盘弹起时整页用 dvh 自适应收缩，避免被遮挡 */
+html.mineradio-mobile body {
+  resize: both;
+}
+
+/* ============================================================
+ *  字体回退（移动端无 Cinzel Decorative 等桌面字体时平滑降级）
+ *  不改 --font-sans / --font-mono 变量，仅补充移动端字体名。
+ * ============================================================ */
+html.mineradio-mobile {
+  /* 桌面版已有完整字体栈，移动端确保中文走系统字体兜底 */
+  font-family: var(--font-sans), -apple-system, "PingFang SC", "Heiti SC", system-ui, sans-serif;
+}
+
+/* ============================================================
+ *  iframe overlay 层（桌面歌词 / 壁纸）安全区
+ * ============================================================ */
+html.mineradio-mobile #mineradio-mobile-lyrics-overlay {
+  bottom: var(--mr-safe-bottom) !important;
+}
+html.mineradio-mobile #mineradio-mobile-wallpaper-overlay {
+  /* 壁纸层铺满全屏（含安全区），与桌面版一致 */
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+
+/* ============================================================
+ *  横屏适配（不改布局，仅安全区方向切换）
+ * ============================================================ */
+@media (orientation: landscape) {
+  html.mineradio-mobile body.desktop-shell #desktop-window-shell {
+    top: var(--mr-safe-top);
+    bottom: var(--mr-safe-bottom);
+    left: var(--mr-safe-left);
+    right: var(--mr-safe-right);
+  }
+}
+
+/* ============================================================
+ *  大屏平板 / 折叠屏：保持桌面版比例，不做额外缩放
+ * ============================================================ */
+@media (min-width: 1024px) {
+  html.mineradio-mobile body.desktop-shell #desktop-window-shell {
+    /* 平板上恢复桌面版圆角与阴影观感（适配大屏，非改型） */
+    border-radius: 24px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.46);
+  }
+}
+
+/* ============================================================
+ *  减少动画偏好（系统级「减弱动态效果」）—— 尊重用户设置
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  html.mineradio-mobile *,
+  html.mineradio-mobile *::before,
+  html.mineradio-mobile *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

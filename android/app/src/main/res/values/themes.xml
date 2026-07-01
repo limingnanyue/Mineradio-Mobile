@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动主题：纯暗场，避免白屏闪烁；窗口背景与 fc_bg 一致 -->
+    <style name="Theme.Mineradio" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fc_bg</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+    <!-- Launcher 主题：首帧前用纯色背景，Activity 启动后由 Compose 接管 -->
+    <style name="Theme.Mineradio.Launcher" parent="Theme.Mineradio">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+</resources>
