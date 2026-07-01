@@ -33,10 +33,13 @@ data class UiState(
     val neteaseLogin: LoginStatus? = null,
     val qqLogin: LoginStatus? = null,
     val activeSource: String = "netease", // netease / qq
+    // 搜索模式（对应桌面版 #search-mode-tabs：all/netease/qq/podcast）
+    val searchMode: String = "all",
     val discover: DiscoverHome? = null,
     val weatherRadio: WeatherRadio? = null,
     val weatherLocation: WeatherLocation? = null,
     val searchResults: List<Song> = emptyList(),
+    val podcastSearchResults: List<Podcast> = emptyList(),
     val searchKeywords: String = "",
     val searchLoading: Boolean = false,
     val playlists: List<Playlist> = emptyList(),
@@ -77,7 +80,19 @@ data class UiState(
     val showDesktopLyricsDiy: Boolean = false,
     val showWallpaperDiy: Boolean = false,
     val showFxArchives: Boolean = false,
+    val showFxPanel: Boolean = false,            // #fx-panel 视觉控制台总面板
     val showCoverCrop: Boolean = false,
+    // 新增弹窗（对应桌面版各 modal）
+    val showCustomLyric: Boolean = false,        // #custom-lyric-modal 自定义歌词 LRC 编辑器
+    val customLyricText: String = "",             // 当前编辑的 LRC 文本
+    val showColorLab: Boolean = false,            // #color-lab-pop 色彩实验室
+    val colorLabTarget: String = "lyric",         // 色彩实验室编辑目标：lyric/highlight/glow/tint/shelfAccent
+    val showVisualGuide: Boolean = false,         // #visual-guide 视觉引导
+    val visualGuideSeen: Boolean = false,         // 是否已看过引导
+    val showLocalBeat: Boolean = false,           // #local-beat-modal 本地节奏分析
+    val showUpdateModal: Boolean = false,         // #update-modal 更新面板
+    val updateAvailable: Boolean = false,         // #update-entry 角标
+    val updateVersion: String = "",               // 新版本号
     val immersiveMode: Boolean = false,
     // ---- 底栏扩展状态（对应桌面版 #bottom-bar 各控件）----
     val showLyricsPanel: Boolean = true,        // .lyrics-toggle-btn，默认显示舞台歌词
@@ -180,10 +195,37 @@ class MainViewModel(
     fun search(keywords: String) {
         _state.update { it.copy(searchKeywords = keywords, searchLoading = true) }
         viewModelScope.launch(handler) {
-            val src = _state.value.activeSource
-            val res = runCatching { repo.search(keywords, src) }.getOrNull()
-            _state.update { it.copy(searchResults = res?.songs.orEmpty(), searchLoading = false) }
+            val mode = _state.value.searchMode
+            when (mode) {
+                "podcast" -> {
+                    // 播客搜索
+                    val pods = runCatching { repo.searchPodcast(keywords) }.getOrNull().orEmpty()
+                    _state.update {
+                        it.copy(searchResults = emptyList(), podcastSearchResults = pods, searchLoading = false)
+                    }
+                }
+                else -> {
+                    // 歌曲：all 时跟随当前 activeSource；netease/qq 强制指定源
+                    val src = when (mode) {
+                        "netease" -> "netease"
+                        "qq" -> "qq"
+                        else -> _state.value.activeSource
+                    }
+                    val res = runCatching { repo.search(keywords, src) }.getOrNull()
+                    _state.update {
+                        it.copy(searchResults = res?.songs.orEmpty(), podcastSearchResults = emptyList(), searchLoading = false)
+                    }
+                }
+            }
         }
+    }
+
+    /** 设置搜索模式 —— 对应桌面版 setSearchMode(mode)。 */
+    fun setSearchMode(mode: String) {
+        _state.update { it.copy(searchMode = mode, searchResults = emptyList(), podcastSearchResults = emptyList()) }
+        // 切换模式后若有现有关键词，自动重新搜索
+        val kw = _state.value.searchKeywords
+        if (kw.isNotEmpty()) search(kw)
     }
 
     fun loadPlaylistTracks(id: Long) {
@@ -556,7 +598,55 @@ class MainViewModel(
     fun toggleDesktopLyricsDiy() = _state.update { it.copy(showDesktopLyricsDiy = !it.showDesktopLyricsDiy) }
     fun toggleWallpaperDiy() = _state.update { it.copy(showWallpaperDiy = !it.showWallpaperDiy) }
     fun toggleFxArchives() = _state.update { it.copy(showFxArchives = !it.showFxArchives) }
+    fun toggleFxPanel() = _state.update { it.copy(showFxPanel = !it.showFxPanel) }
     fun toggleCoverCrop() = _state.update { it.copy(showCoverCrop = !it.showCoverCrop) }
+    /** 封面裁剪提交：把裁剪后的方形封面应用到当前曲目的 MediaSession artwork。 */
+    fun commitCoverCrop(bitmap: android.graphics.Bitmap) {
+        viewModelScope.launch(handler) {
+            player.setArtworkBitmap(bitmap)
+            _state.update { it.copy(showCoverCrop = false, toast = "已应用裁剪封面") }
+        }
+    }
+
+    // ---- 自定义歌词 LRC 编辑器（对应桌面版 #custom-lyric-modal）----
+    fun toggleCustomLyric() = _state.update { it.copy(showCustomLyric = !it.showCustomLyric) }
+    fun setCustomLyricText(text: String) = _state.update { it.copy(customLyricText = text) }
+    /** 保存自定义歌词：解析 LRC 并立即应用到当前歌词显示。 */
+    fun saveCustomLyric() {
+        val raw = _state.value.customLyricText
+        val lines = parseLyric(raw)
+        _state.update { it.copy(lyricsLines = lines, showCustomLyric = false, toast = "已应用自定义歌词") }
+    }
+
+    // ---- 色彩实验室（对应桌面版 #color-lab-pop）----
+    fun toggleColorLab(target: String = "lyric") = _state.update {
+        it.copy(showColorLab = !it.showColorLab, colorLabTarget = target)
+    }
+    /** 色彩实验室选色后应用到 FxState 指定字段。 */
+    fun applyColorLab(color: androidx.compose.ui.graphics.Color) {
+        val target = _state.value.colorLabTarget
+        val fx = _state.value.fx
+        val newFx = when (target) {
+            "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
+            "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
+            "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
+            "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
+            "shelfAccent" -> fx.copy(shelfAccent = color)
+            else -> fx
+        }
+        _state.update { it.copy(fx = newFx) }
+    }
+
+    // ---- 视觉引导（对应桌面版 #visual-guide）----
+    fun toggleVisualGuide() = _state.update { it.copy(showVisualGuide = !it.showVisualGuide) }
+    fun dismissVisualGuide() = _state.update { it.copy(showVisualGuide = false, visualGuideSeen = true) }
+
+    // ---- 本地节奏分析（对应桌面版 #local-beat-modal）----
+    fun toggleLocalBeat() = _state.update { it.copy(showLocalBeat = !it.showLocalBeat) }
+
+    // ---- 更新面板（对应桌面版 #update-modal / #update-entry）----
+    fun toggleUpdateModal() = _state.update { it.copy(showUpdateModal = !it.showUpdateModal) }
+    fun setUpdateAvailable(version: String) = _state.update { it.copy(updateAvailable = true, updateVersion = version) }
 
     /** 更新 FX 状态的通用入口。 */
     fun updateFx(transform: (FxState) -> FxState) {
@@ -589,6 +679,26 @@ class MainViewModel(
                 lyricLineHeight = s.fx.lyricLineHeight,
                 lyricWeight = s.fx.lyricWeight,
                 lyricScale = s.fx.lyricScale,
+                particleSize = s.fx.particleSize,
+                particleSpeed = s.fx.particleSpeed,
+                particleTwist = s.fx.particleTwist,
+                particleColor = s.fx.particleColor,
+                particleBloom = s.fx.particleBloom,
+                particleScatter = s.fx.particleScatter,
+                particleBgFade = s.fx.particleBgFade,
+                shelfSize = s.fx.shelfSize,
+                shelfX = s.fx.shelfX,
+                shelfY = s.fx.shelfY,
+                shelfZ = s.fx.shelfZ,
+                shelfAngle = s.fx.shelfAngle,
+                shelfOpacity = s.fx.shelfOpacity,
+                shelfBgAlpha = s.fx.shelfBgAlpha,
+                shelfAccent = s.fx.shelfAccent.value.toLong(),
+                shelfShowPodcasts = s.fx.shelfShowPodcasts,
+                shelfMergeCollections = s.fx.shelfMergeCollections,
+                shelfCameraMode = s.fx.shelfCameraMode,
+                shelfPresenceMode = s.fx.shelfPresenceMode,
+                cameraInteraction = s.fx.cameraInteraction,
             )
             val archives = s.fxArchives.map {
                 if (it.index == index) it.copy(savedAt = System.currentTimeMillis(), snapshot = snap) else it
@@ -625,6 +735,26 @@ class MainViewModel(
                 lyricLineHeight = snap.lyricLineHeight,
                 lyricWeight = snap.lyricWeight,
                 lyricScale = snap.lyricScale,
+                particleSize = snap.particleSize,
+                particleSpeed = snap.particleSpeed,
+                particleTwist = snap.particleTwist,
+                particleColor = snap.particleColor,
+                particleBloom = snap.particleBloom,
+                particleScatter = snap.particleScatter,
+                particleBgFade = snap.particleBgFade,
+                shelfSize = snap.shelfSize,
+                shelfX = snap.shelfX,
+                shelfY = snap.shelfY,
+                shelfZ = snap.shelfZ,
+                shelfAngle = snap.shelfAngle,
+                shelfOpacity = snap.shelfOpacity,
+                shelfBgAlpha = snap.shelfBgAlpha,
+                shelfAccent = Color(snap.shelfAccent),
+                shelfShowPodcasts = snap.shelfShowPodcasts,
+                shelfMergeCollections = snap.shelfMergeCollections,
+                shelfCameraMode = snap.shelfCameraMode,
+                shelfPresenceMode = snap.shelfPresenceMode,
+                cameraInteraction = snap.cameraInteraction,
             )
             s.copy(fx = fx, toast = "已加载 ${slot.name}")
         }

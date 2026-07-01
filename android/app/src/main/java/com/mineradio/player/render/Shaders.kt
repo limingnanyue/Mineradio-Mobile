@@ -33,6 +33,11 @@ uniform float uPlaying;            // 1.0 播放中 / 0.0 暂停
 uniform float uOpacity;            // 整体不透明度
 uniform vec2  uResolution;         // 视口像素
 uniform float uDpr;                // 像素密度
+// 粒子高级参数（对应桌面版 fx.point/speed/twist/scatter）
+uniform float uSizeScale;          // fx.point  粒子尺寸缩放
+uniform float uSpeedScale;         // fx.speed  流速缩放
+uniform float uTwistScale;         // fx.twist  轨道波动幅度缩放
+uniform float uScatterScale;       // fx.scatter 半径环离散度
 
 varying float vTw;                 // 闪烁值传给片元
 varying float vLane;
@@ -45,10 +50,12 @@ float rand(float n) {
 
 void main() {
     float seed = aSeed;
-    float speed = 0.009 + rand(seed) * 0.021 + (uPlaying > 0.5 ? 0.010 : 0.0);
-    float a = mod(aPosition.x * 6.2831853 + uTime * speed + sin(uTime * 0.07 + seed) * 0.14, 6.2831853);
-    float ring = 0.18 + aZ * 0.82;
-    float wobble = sin(uTime * (0.22 + rand(seed) * 0.18) + seed) * 12.0;
+    // speed 受 uSpeedScale 调节（fx.speed）
+    float speed = (0.009 + rand(seed) * 0.021 + (uPlaying > 0.5 ? 0.010 : 0.0)) * uSpeedScale;
+    float a = mod(aPosition.x * 6.2831853 + uTime * speed + sin(uTime * 0.07 + seed) * 0.14 * uTwistScale, 6.2831853);
+    // ring 受 uScatterScale 调节：scatter 越大半径环离散度越高
+    float ring = 0.18 + aZ * 0.82 * mix(0.7, 1.15, uScatterScale);
+    float wobble = sin(uTime * (0.22 + rand(seed) * 0.18) + seed) * 12.0 * uTwistScale;
 
     // 椭圆中心轻微上下浮动（与桌面版 cy = innerH*0.5 + sin(now*0.28)*innerH*0.018 一致）
     float cx = 0.0;
@@ -67,8 +74,8 @@ void main() {
     vLane = aLane;
     vRing = ring;
 
-    // 尺寸：基础 * (0.8 + tw*1.2)，按 dpr 缩放，最小 1.5px
-    float px = max(1.5, aSize * (0.8 + tw * 1.2)) * uDpr;
+    // 尺寸：基础 * (0.8 + tw*1.2)，按 dpr 缩放 + uSizeScale，最小 1.5px
+    float px = max(1.5, aSize * (0.8 + tw * 1.2) * uSizeScale) * uDpr;
     gl_PointSize = px;
 }
 """.trimIndent()
@@ -85,6 +92,9 @@ uniform vec3  uColorHighlight;
 uniform vec3  uColorGlow;
 uniform float uOpacity;
 uniform float uPlaying;
+// 粒子高级参数（对应桌面版 fx.color / fx.bloom）
+uniform float uColorScale;          // fx.color  色彩张力（高光阈值调节）
+uniform float uBloomScale;          // fx.bloom  溢光（高光强度）
 
 varying float vTw;
 varying float vLane;
@@ -97,13 +107,19 @@ void main() {
     if (d > 0.25) discard;
     float soft = 1.0 - smoothstep(0.0, 0.25, d);
 
-    // 颜色分级（与 wallpaper.html 一致）
-    vec3 col = vTw > 0.74
+    // 颜色分级（与 wallpaper.html 一致）。uColorScale 调节高光阈值：
+    //   color 越大 → 阈值越低 → 更多家粒子进入 highlight 分级（色彩张力增强）
+    float highlightThr = 0.74 - (uColorScale - 1.0) * 0.18;
+    vec3 col = vTw > highlightThr
         ? uColorHighlight
         : (vLane > 0.55 ? uColorSecondary : uColorGlow);
 
     // 不透明度：与桌面版 globalAlpha = 0.045 + tw*0.18 + (playing?0.035:0) 等价
     float alpha = (0.045 + vTw * 0.18 + (uPlaying > 0.5 ? 0.035 : 0.0)) * uOpacity;
+    // bloom（溢光）：高光粒子额外增强 alpha，模拟 glow
+    if (vTw > highlightThr) {
+        alpha *= (1.0 + (uBloomScale - 1.0) * 0.6);
+    }
     alpha *= soft;
     if (alpha < 0.002) discard;
 

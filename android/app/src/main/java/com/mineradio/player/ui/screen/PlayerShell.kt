@@ -10,20 +10,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,9 +39,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.size.Size
+import androidx.core.graphics.drawable.toBitmap
 import com.mineradio.player.data.api.dto.Song
 import com.mineradio.player.render.GalaxyState
 import com.mineradio.player.render.ParticleGalaxyBackground
@@ -67,6 +79,25 @@ fun PlayerShell(
     // 粒子背景配色：custom 模式用 FxState 自定义色，否则用默认 wallpaper 配色
     val galaxyColors = state.fx.overlayColors()
 
+    // 封面裁剪：showCoverCrop 打开时异步加载当前曲目封面为 Bitmap
+    val context = LocalContext.current
+    var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(state.showCoverCrop, playback.current?.displayCover) {
+        if (state.showCoverCrop) {
+            val url = playback.current?.displayCover.orEmpty()
+            coverBitmap = if (url.isEmpty()) null else runCatching {
+                val loader = ImageLoader(context)
+                val req = ImageRequest.Builder(context).data(url).size(Size.ORIGINAL).build()
+                loader.execute(req).drawable?.let { d ->
+                    if (d is android.graphics.drawable.BitmapDrawable) d.bitmap
+                    else d.toBitmap()
+                }
+            }.getOrNull()
+        } else {
+            coverBitmap = null
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(MineradioColors.FcBg)) {
         // 1. 粒子星河背景（永远铺底）
         ParticleGalaxyBackground(
@@ -81,6 +112,13 @@ fun PlayerShell(
             secondaryColor = galaxyColors.secondary,
             highlightColor = galaxyColors.highlight,
             glowColor = galaxyColors.glow,
+            particleSize = state.fx.particleSize,
+            particleSpeed = state.fx.particleSpeed,
+            particleTwist = state.fx.particleTwist,
+            particleColor = state.fx.particleColor,
+            particleBloom = state.fx.particleBloom,
+            particleScatter = state.fx.particleScatter,
+            particleBgFade = state.fx.particleBgFade,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -207,6 +245,8 @@ fun PlayerShell(
                 onValueChange = { searchText = it; vm.search(it) },
                 onSubmit = { vm.search(searchText) },
                 modifier = Modifier.fillMaxWidth(),
+                searchMode = state.searchMode,
+                onModeChange = vm::setSearchMode,
             )
         }
 
@@ -269,7 +309,82 @@ fun PlayerShell(
             }
         }
         AnimatedVisibility(visible = state.showCoverCrop, enter = fadeIn(), exit = fadeOut()) {
-            CoverCropModal(bitmap = null, onCommit = {}, onDismiss = vm::toggleCoverCrop)
+            if (coverBitmap != null) {
+                CoverCropModal(bitmap = coverBitmap, onCommit = vm::commitCoverCrop, onDismiss = vm::toggleCoverCrop)
+            } else {
+                DiyOverlayPanel(title = "裁剪封面", onClose = vm::toggleCoverCrop) {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text("正在加载封面…", color = MineradioColors.FcMuted, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        // 6.5.1 FX 视觉控制台（总面板，对应桌面版 #fx-panel）
+        AnimatedVisibility(visible = state.showFxPanel, enter = fadeIn(), exit = fadeOut()) {
+            DiyOverlayPanel(title = "视觉控制台", onClose = vm::toggleFxPanel) {
+                FxPanel(
+                    fx = state.fx,
+                    onUpdate = vm::updateFx,
+                    onOpenColorLab = { target -> vm.toggleColorLab(target) },
+                )
+            }
+        }
+        // 6.5.2 自定义歌词 LRC 编辑器（#custom-lyric-modal）
+        AnimatedVisibility(visible = state.showCustomLyric, enter = fadeIn(), exit = fadeOut()) {
+            CustomLyricModal(
+                text = state.customLyricText,
+                onTextChange = vm::setCustomLyricText,
+                onSave = vm::saveCustomLyric,
+                onDismiss = vm::toggleCustomLyric,
+            )
+        }
+        // 6.5.3 色彩实验室（#color-lab-pop）—— 初始色由 target 字段决定
+        AnimatedVisibility(visible = state.showColorLab, enter = fadeIn(), exit = fadeOut()) {
+            val initialColor = when (state.colorLabTarget) {
+                "lyric" -> state.fx.lyricColor
+                "highlight" -> state.fx.lyricHighlightColor
+                "glow" -> state.fx.lyricGlowColor
+                "tint" -> state.fx.visualTintColor
+                "shelfAccent" -> state.fx.shelfAccent
+                else -> state.fx.lyricColor
+            }
+            ColorLabPop(
+                initialColor = initialColor,
+                target = state.colorLabTarget,
+                onPick = vm::applyColorLab,
+                onDismiss = { vm.toggleColorLab(state.colorLabTarget) },
+            )
+        }
+        // 6.5.4 本地节奏分析（#local-beat-modal）
+        AnimatedVisibility(visible = state.showLocalBeat, enter = fadeIn(), exit = fadeOut()) {
+            LocalBeatModal(onDismiss = vm::toggleLocalBeat)
+        }
+        // 6.5.5 更新面板（#update-modal）
+        AnimatedVisibility(visible = state.showUpdateModal, enter = fadeIn(), exit = fadeOut()) {
+            DiyOverlayPanel(title = "发现新版本", onClose = vm::toggleUpdateModal) {
+                Column {
+                    Text(
+                        if (state.updateAvailable) "新版本 ${state.updateVersion} 可用" else "已是最新版本",
+                        color = MineradioColors.FcInk,
+                        fontSize = 14.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Text(
+                            "暂不更新",
+                            color = MineradioColors.FcMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { vm.toggleUpdateModal() }.padding(8.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6.5.6 视觉引导（#visual-guide）—— 全屏遮罩，置顶
+        AnimatedVisibility(visible = state.showVisualGuide, enter = fadeIn(), exit = fadeOut()) {
+            VisualGuide(onDismiss = vm::dismissVisualGuide)
         }
 
         // 6.6 登录浮层
@@ -342,6 +457,14 @@ fun PlayerShell(
                     onSelect = vm::setShelfSelected,
                     onModeChange = vm::setShelfMode,
                     modifier = Modifier.fillMaxSize(),
+                    shelfSize = state.fx.shelfSize,
+                    shelfX = state.fx.shelfX,
+                    shelfY = state.fx.shelfY,
+                    shelfZ = state.fx.shelfZ,
+                    shelfAngle = state.fx.shelfAngle,
+                    shelfOpacity = state.fx.shelfOpacity,
+                    shelfBgAlpha = state.fx.shelfBgAlpha,
+                    shelfAccent = state.fx.shelfAccent,
                 )
                 // 顶部操作条：打开选中歌单 / 关闭
                 Row(
@@ -443,7 +566,10 @@ private fun TopBar(
         IconButton(onClick = onSearchClick) {
             Icon(Icons.Filled.Search, "搜索", tint = MineradioColors.FcInk2)
         }
-        // DIY 入口：桌面歌词 / 壁纸 / FX 存档 / 封面裁剪 / 沉浸模式
+        // DIY 入口：视觉控制台 / 桌面歌词 / 壁纸 / FX 存档 / 自定义歌词 / 本地节奏 / 封面裁剪 / 沉浸模式
+        IconButton(onClick = vm::toggleFxPanel) {
+            Icon(Icons.Filled.Dashboard, "视觉控制台", tint = MineradioColors.FcInk2)
+        }
         IconButton(onClick = vm::toggleDesktopLyricsDiy) {
             Icon(Icons.Filled.Tune, "桌面歌词 DIY", tint = MineradioColors.FcInk2)
         }
@@ -453,14 +579,30 @@ private fun TopBar(
         IconButton(onClick = vm::toggleFxArchives) {
             Icon(Icons.Filled.PhotoLibrary, "FX 存档", tint = MineradioColors.FcInk2)
         }
+        IconButton(onClick = vm::toggleCustomLyric) {
+            Icon(Icons.Filled.Edit, "自定义歌词", tint = MineradioColors.FcInk2)
+        }
+        IconButton(onClick = vm::toggleLocalBeat) {
+            Icon(Icons.Filled.Speed, "本地节奏分析", tint = MineradioColors.FcInk2)
+        }
         IconButton(onClick = vm::toggleCoverCrop) {
             Icon(Icons.Filled.Image, "封面裁剪", tint = MineradioColors.FcInk2)
         }
         IconButton(onClick = vm::toggleImmersive) {
             Icon(Icons.Filled.Fullscreen, "沉浸模式", tint = if (state.immersiveMode) MineradioColors.FcAccent else MineradioColors.FcInk2)
         }
-        IconButton(onClick = vm::toggleSettings) {
-            Icon(Icons.Filled.Settings, "设置", tint = MineradioColors.FcInk2)
+        IconButton(onClick = vm::toggleVisualGuide) {
+            Icon(Icons.Filled.HelpOutline, "使用引导", tint = MineradioColors.FcInk2)
+        }
+        // 设置 + 更新角标（#update-entry）
+        IconButton(onClick = if (state.updateAvailable) vm::toggleUpdateModal else vm::toggleSettings) {
+            BadgedBox(badge = {
+                if (state.updateAvailable) {
+                    Badge { Text("${state.updateVersion}", fontSize = 9.sp) }
+                }
+            }) {
+                Icon(Icons.Filled.Settings, "设置", tint = MineradioColors.FcInk2)
+            }
         }
     }
 }

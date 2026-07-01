@@ -32,6 +32,28 @@ data class FxArchiveSnapshot(
     val lyricLineHeight: Float = 1.18f,
     val lyricWeight: Int = 400,
     val lyricScale: Float = 1.0f,
+    // 粒子星河高级参数
+    val particleSize: Float = 1.0f,
+    val particleSpeed: Float = 1.0f,
+    val particleTwist: Float = 1.0f,
+    val particleColor: Float = 1.0f,
+    val particleBloom: Float = 1.0f,
+    val particleScatter: Float = 1.0f,
+    val particleBgFade: Float = 1.0f,
+    // 3D 歌单架参数
+    val shelfSize: Float = 1.0f,
+    val shelfX: Float = 0f,
+    val shelfY: Float = 0f,
+    val shelfZ: Float = 0f,
+    val shelfAngle: Float = 0f,
+    val shelfOpacity: Float = 1.0f,
+    val shelfBgAlpha: Float = 0.0f,
+    val shelfAccent: Long = 0xFFF4D28A,
+    val shelfShowPodcasts: Boolean = false,
+    val shelfMergeCollections: Boolean = false,
+    val shelfCameraMode: Int = 0,
+    val shelfPresenceMode: Int = 0,
+    val cameraInteraction: Int = 0,
 )
 
 /**

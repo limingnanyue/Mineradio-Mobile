@@ -166,6 +166,28 @@ class PlayerController(private val context: Context) {
         _state.update { it.copy(shuffle = enabled) }
     }
 
+    /**
+     * 把裁剪后的方形封面应用到当前曲目的 MediaSession artwork。
+     * 写入缓存文件后用 file:// URI 替换当前 MediaItem 的 artworkUri。
+     */
+    fun setArtworkBitmap(bitmap: android.graphics.Bitmap) {
+        val c = controller ?: return
+        val current = c.currentMediaItem ?: return
+        runCatching {
+            val file = java.io.File(context.cacheDir, "cropped_cover_${System.currentTimeMillis()}.jpg")
+            java.io.FileOutputStream(file).use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            val uri = android.net.Uri.fromFile(file)
+            val newMeta = current.mediaMetadata.buildUpon()
+                .setArtworkUri(uri)
+                .build()
+            val newItem = current.buildUpon().setMediaMetadata(newMeta).build()
+            val idx = c.currentMediaItemIndex
+            c.replaceMediaItem(idx, newItem)
+        }
+    }
+
     private fun Song.toMediaItem(playUrl: String): MediaItem {
         val meta = MediaMetadata.Builder()
             .setTitle(name)

@@ -36,6 +36,9 @@ class ShelfRenderer {
     private var uSelectedLoc = -1
     private var uTimeLoc = -1
     private var uModeLoc = -1
+    private var uOpacityLoc = -1
+    private var uAccentLoc = -1
+    private var uBgAlphaLoc = -1
 
     // ---- 顶点 ----
     private var quadPosBuffer: FloatBuffer? = null
@@ -57,6 +60,15 @@ class ShelfRenderer {
         val mode: ShelfMode = ShelfMode.SIDE,
         val coverUrls: List<String> = emptyList(),
         val selectedIndex: Int = 0,
+        // 3D 架 DIY 参数（对应桌面版 fx.shelf*）
+        val size: Float = 1.0f,           // fx.shelfsize   0.5..1.7
+        val offsetX: Float = 0f,          // fx.shelfx      -1.2..1.2
+        val offsetY: Float = 0f,          // fx.shelfy      -1.0..1.0
+        val offsetZ: Float = 0f,          // fx.shelfz      -1.5..1.5
+        val angle: Float = 0f,            // fx.shelfangle  -30..30 度（整体俯仰角）
+        val opacity: Float = 1.0f,        // fx.shelfopacity 0.2..1
+        val bgAlpha: Float = 0.0f,        // fx.shelfbgalpha 0..0.6 架子背景板透明度
+        val accent: FloatArray = floatArrayOf(0.957f, 0.823f, 0.541f),  // fx.shelfaccent 香槟金 RGB
     )
 
     enum class ShelfMode { OFF, SIDE, STAGE }
@@ -87,6 +99,9 @@ class ShelfRenderer {
         uSelectedLoc = GlUtils.uniformLocation(program, "uSelected")
         uTimeLoc = GlUtils.uniformLocation(program, "uTime")
         uModeLoc = GlUtils.uniformLocation(program, "uMode")
+        uOpacityLoc = GLES20.glUniformLocation(program, "uOpacity")
+        uAccentLoc = GLES20.glUniformLocation(program, "uAccent")
+        uBgAlphaLoc = GLES20.glUniformLocation(program, "uBgAlpha")
 
         // 单个 plane 顶点（2:1，width=2, height=1，居中）
         val pos = floatArrayOf(
@@ -129,6 +144,9 @@ class ShelfRenderer {
         GLES20.glUseProgram(program)
         GLES20.glUniform1f(uTimeLoc, timeSeconds)
         GLES20.glUniform1i(uModeLoc, s.mode.ordinal)
+        GLES20.glUniform1f(uOpacityLoc, s.opacity.coerceIn(0.2f, 1f))
+        GLES20.glUniform3fv(uAccentLoc, 1, s.accent, 0)
+        GLES20.glUniform1f(uBgAlphaLoc, s.bgAlpha.coerceIn(0f, 0.6f))
 
         val count = s.coverUrls.size
         if (count == 0 || textures.isEmpty()) {
@@ -137,14 +155,22 @@ class ShelfRenderer {
             return
         }
 
-        // 每张封面按 PSP 弧形摆放
+        // 全局变换：先按 DIY 的 offset/size/angle 整体平移+缩放+俯仰
+        // 每张封面再叠加各自 PSP 弧形局部变换
         for (i in 0 until count) {
             val texIdx = i.coerceAtMost(textures.size - 1)
             val (tx, ty, tz, ry, scale) = layoutFor(i, count, s.mode)
             Matrix.setIdentityM(model, 0)
+            // 全局 DIY 偏移
+            Matrix.translateM(model, 0, s.offsetX, s.offsetY, s.offsetZ)
+            // 全局俯仰角（fx.shelfangle，绕 X 轴）
+            if (s.angle != 0f) Matrix.rotateM(model, 0, s.angle, 1f, 0f, 0f)
+            // 局部 PSP 弧形位置
             Matrix.translateM(model, 0, tx, ty, tz)
             Matrix.rotateM(model, 0, ry, 0f, 1f, 0f)
-            Matrix.scaleM(model, 0, scale, scale, 1f)
+            // 局部缩放 × 全局尺寸
+            val finalScale = scale * s.size
+            Matrix.scaleM(model, 0, finalScale, finalScale, 1f)
             multiplyMvp()
             GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvp, 0)
             GLES20.glUniform1i(uSelectedLoc, if (i == s.selectedIndex) 1 else 0)
@@ -283,6 +309,7 @@ class ShelfRenderer {
         /**
          * 片段着色器 —— 采样封面纹理 + 圆角裁剪 + 选中高亮 + 香槟金描边。
          * 圆角与描边用 SDF（signed distance field）实现，对应桌面 .shelf-cover 圆角 + ::after 边框。
+         * uAccent 由 DIY fx.shelfaccent 注入；uOpacity 由 fx.shelfopacity 控制整体透明度。
          */
         private val FRAGMENT_SHADER = """
             precision mediump float;
@@ -290,6 +317,9 @@ class ShelfRenderer {
             uniform int uSelected;
             uniform float uTime;
             uniform int uMode;
+            uniform float uOpacity;
+            uniform vec3  uAccent;
+            uniform float uBgAlpha;
             varying vec2 vUv;
             // 圆角矩形 SDF
             float roundedBox(vec2 p, vec2 b, float r) {
@@ -302,18 +332,17 @@ class ShelfRenderer {
                 float d = roundedBox(p, vec2(0.96, 0.92), 0.12);
                 if (d > 0.0) discard;
                 vec4 col = texture2D(uTex, vUv);
-                // 选中态：香槟金高光描边 + 轻微提亮
+                // 选中态：DIY 香槟金高光描边 + 轻微提亮
                 float border = smoothstep(-0.06, 0.0, d);
-                vec3 champagne = vec3(0.957, 0.823, 0.541);
                 if (uSelected == 1) {
-                    col.rgb = mix(col.rgb, champagne, border * 0.85);
+                    col.rgb = mix(col.rgb, uAccent, border * 0.85);
                     col.rgb *= 1.08;
                 } else {
                     // 未选中：暗化 + 香槟描边（更弱）
-                    col.rgb = mix(col.rgb, champagne * 0.6, border * 0.4);
+                    col.rgb = mix(col.rgb, uAccent * 0.6, border * 0.4);
                     col.rgb *= 0.82;
                 }
-                gl_FragColor = vec4(col.rgb, col.a);
+                gl_FragColor = vec4(col.rgb, col.a * uOpacity);
             }
         """.trimIndent()
     }

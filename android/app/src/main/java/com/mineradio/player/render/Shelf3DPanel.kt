@@ -49,6 +49,11 @@ class ShelfState {
     fun setMode(mode: ShelfRenderer.ShelfMode, urls: List<String>, selectedIndex: Int) {
         renderer.setState(ShelfRenderer.State(mode = mode, coverUrls = urls, selectedIndex = selectedIndex))
     }
+
+    /** 推送完整状态（含 DIY 参数）到渲染器。 */
+    fun setFullState(state: ShelfRenderer.State) {
+        renderer.setState(state)
+    }
 }
 
 @Composable
@@ -59,6 +64,15 @@ fun Shelf3DPanel(
     onSelect: (Int) -> Unit,
     onModeChange: (ShelfRenderer.ShelfMode) -> Unit,
     modifier: Modifier = Modifier,
+    // 3D 架 DIY 参数（对应桌面版 fx.shelf*）
+    shelfSize: Float = 1.0f,
+    shelfX: Float = 0f,
+    shelfY: Float = 0f,
+    shelfZ: Float = 0f,
+    shelfAngle: Float = 0f,
+    shelfOpacity: Float = 1.0f,
+    shelfBgAlpha: Float = 0.0f,
+    shelfAccent: Color = Color(0xFFF4D28A),
 ) {
     val context = LocalContext.current
     val shelfState = remember { ShelfState() }
@@ -68,9 +82,23 @@ fun Shelf3DPanel(
     }
     var loadedCount by remember(playlists) { mutableStateOf(0) }
 
-    // 推送状态到渲染器
-    LaunchedEffect(mode, coverUrls, selectedIndex) {
-        shelfState.setMode(mode, coverUrls, selectedIndex)
+    // 推送状态到渲染器（含 DIY 参数）
+    LaunchedEffect(mode, coverUrls, selectedIndex, shelfSize, shelfX, shelfY, shelfZ, shelfAngle, shelfOpacity, shelfBgAlpha, shelfAccent) {
+        shelfState.setFullState(
+            ShelfRenderer.State(
+                mode = mode,
+                coverUrls = coverUrls,
+                selectedIndex = selectedIndex,
+                size = shelfSize,
+                offsetX = shelfX,
+                offsetY = shelfY,
+                offsetZ = shelfZ,
+                angle = shelfAngle,
+                opacity = shelfOpacity,
+                bgAlpha = shelfBgAlpha,
+                accent = floatArrayOf(shelfAccent.red, shelfAccent.green, shelfAccent.blue),
+            )
+        )
     }
 
     // 用 Coil 异步加载封面 bitmap → 推入渲染器队列

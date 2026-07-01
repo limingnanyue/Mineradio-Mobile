@@ -52,6 +52,32 @@ data class FxState(
     val lyricLineHeight: Float = 1.18f,     // 0.9..1.8
     val lyricWeight: Int = 400,             // 100..900
     val lyricScale: Float = 1.0f,           // 0.35..1.65
+
+    // ---- 粒子星河高级参数（对应桌面版 #fx-advanced fold）----
+    val particleSize: Float = 1.0f,         // fx.point  0.4..2.4  粒子尺寸
+    val particleSpeed: Float = 1.0f,        // fx.speed  0.2..2.6  流速
+    val particleTwist: Float = 1.0f,        // fx.twist  0.0..2.4  扭曲（轨道波动幅度）
+    val particleColor: Float = 1.0f,        // fx.color  0.0..1.8  色彩张力
+    val particleBloom: Float = 1.0f,        // fx.bloom  0.0..2.2  溢光（高光阈值/强度）
+    val particleScatter: Float = 1.0f,      // fx.scatter 0.0..1.8  离散（半径环离散度）
+    val particleBgFade: Float = 1.0f,       // fx.bgfade  0.0..1.6  背景压缩（aura 强度）
+
+    // ---- 3D 歌单架参数（对应桌面版 #fx-stage-fold）----
+    val shelfSize: Float = 1.0f,            // fx.shelfsize   0.5..1.7
+    val shelfX: Float = 0f,                 // fx.shelfx      -1.2..1.2
+    val shelfY: Float = 0f,                 // fx.shelfy      -1.0..1.0
+    val shelfZ: Float = 0f,                 // fx.shelfz      -1.5..1.5
+    val shelfAngle: Float = 0f,             // fx.shelfangle  -30..30 度
+    val shelfOpacity: Float = 1.0f,         // fx.shelfopacity 0.2..1
+    val shelfBgAlpha: Float = 0.0f,         // fx.shelfbgalpha 0..0.6 架子背景板透明度
+    val shelfAccent: Color = Color(0xFFF4D28A), // fx.shelfaccent 香槟金
+    val shelfShowPodcasts: Boolean = false, // #t-shelfShowPodcasts
+    val shelfMergeCollections: Boolean = false, // #t-shelfMergeCollections
+    val shelfCameraMode: Int = 0,           // #shelf-camera-seg 0=动态 / 1=静态
+    val shelfPresenceMode: Int = 0,         // #shelf-presence-seg 0=自动隐藏 / 1=常驻
+
+    // ---- 摄像头交互（对应桌面版 #cam-seg）----
+    val cameraInteraction: Int = 0,         // 0=关闭 / 1=手势触碰
 ) {
     /** 桌面歌词配色（desktopOverlayColors 等价实现）。 */
     fun overlayColors(): OverlayColors {

@@ -53,6 +53,13 @@ class ParticleGalaxyRenderer {
     private var pColSecLoc = -1
     private var pColHlLoc = -1
     private var pColGlowLoc = -1
+    // 粒子高级参数 uniform
+    private var pSizeScaleLoc = -1
+    private var pSpeedScaleLoc = -1
+    private var pTwistScaleLoc = -1
+    private var pColorScaleLoc = -1
+    private var pBloomScaleLoc = -1
+    private var pScatterScaleLoc = -1
 
     // ---- 粒子数据 ----
     private var particleCount = 0
@@ -78,12 +85,25 @@ class ParticleGalaxyRenderer {
         val preset: Int = 0,
         val opacity: Float = 1f,
         val colors: Colors = Colors(),
+        // 粒子高级参数（对应桌面版 fx.point/speed/twist/color/bloom/scatter/bgfade）
+        val particle: ParticleParams = ParticleParams(),
     ) {
         data class Colors(
             val primary: FloatArray = hexToRgb("#d6f8ff"),
             val secondary: FloatArray = hexToRgb("#9cffdf"),
             val highlight: FloatArray = hexToRgb("#fff0b8"),
             val glow: FloatArray = hexToRgb("#9cffdf"),
+        )
+
+        /** 粒子高级参数 —— 全部默认 1.0 即与原始 wallpaper 视觉一致。 */
+        data class ParticleParams(
+            val size: Float = 1.0f,        // fx.point  0.4..2.4
+            val speed: Float = 1.0f,       // fx.speed  0.2..2.6
+            val twist: Float = 1.0f,       // fx.twist  0.0..2.4
+            val color: Float = 1.0f,       // fx.color  0.0..1.8  色彩张力（高光阈值调节）
+            val bloom: Float = 1.0f,       // fx.bloom  0.0..2.2  溢光（高光强度）
+            val scatter: Float = 1.0f,     // fx.scatter 0.0..1.8 离散（半径环离散度）
+            val bgFade: Float = 1.0f,      // fx.bgfade 0.0..1.6  背景 aura 强度
         )
     }
 
@@ -145,10 +165,16 @@ class ParticleGalaxyRenderer {
         pOpLoc = GlUtils.uniformLocation(particleProgram, "uOpacity")
         pResLoc = GlUtils.uniformLocation(particleProgram, "uResolution")
         pDprLoc = GlUtils.uniformLocation(particleProgram, "uDpr")
-        pColPrimLoc = GlUtils.uniformLocation(particleProgram, "uColorPrimary")
-        pColSecLoc = GlUtils.uniformLocation(particleProgram, "uColorSecondary")
-        pColHlLoc = GlUtils.uniformLocation(particleProgram, "uColorHighlight")
-        pColGlowLoc = GlUtils.uniformLocation(particleProgram, "uColorGlow")
+        pColPrimLoc = GLES20.glUniformLocation(particleProgram, "uColorPrimary")
+        pColSecLoc = GLES20.glUniformLocation(particleProgram, "uColorSecondary")
+        pColHlLoc = GLES20.glUniformLocation(particleProgram, "uColorHighlight")
+        pColGlowLoc = GLES20.glUniformLocation(particleProgram, "uColorGlow")
+        pSizeScaleLoc = GLES20.glUniformLocation(particleProgram, "uSizeScale")
+        pSpeedScaleLoc = GLES20.glUniformLocation(particleProgram, "uSpeedScale")
+        pTwistScaleLoc = GLES20.glUniformLocation(particleProgram, "uTwistScale")
+        pColorScaleLoc = GLES20.glUniformLocation(particleProgram, "uColorScale")
+        pBloomScaleLoc = GLES20.glUniformLocation(particleProgram, "uBloomScale")
+        pScatterScaleLoc = GLES20.glUniformLocation(particleProgram, "uScatterScale")
 
         fullQuadBuffer = makeFloatBuffer(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
 
@@ -176,6 +202,7 @@ class ParticleGalaxyRenderer {
     fun onDrawFrame(timeSeconds: Float) {
         val s = state
         val opacity = s.opacity.coerceIn(0.35f, 1f)
+        val p = s.particle
 
         // 上传待加载封面
         pendingCoverBitmap?.let { bmp ->
@@ -192,7 +219,7 @@ class ParticleGalaxyRenderer {
         GLES20.glUniform3fv(bgPrimLoc, 1, s.colors.primary, 0)
         GLES20.glUniform3fv(bgSecLoc, 1, s.colors.secondary, 0)
         GLES20.glUniform3fv(bgHlLoc, 1, s.colors.highlight, 0)
-        GLES20.glUniform1f(bgOpLoc, opacity)
+        GLES20.glUniform1f(bgOpLoc, opacity * p.bgFade)  // bgfade 调节背景 aura 强度
         GLES20.glUniform1f(bgTimeLoc, timeSeconds)
         fullQuadBuffer?.let {
             it.position(0)
@@ -215,6 +242,13 @@ class ParticleGalaxyRenderer {
         GLES20.glUniform3fv(pColSecLoc, 1, s.colors.secondary, 0)
         GLES20.glUniform3fv(pColHlLoc, 1, s.colors.highlight, 0)
         GLES20.glUniform3fv(pColGlowLoc, 1, s.colors.glow, 0)
+        // 粒子高级参数
+        GLES20.glUniform1f(pSizeScaleLoc, p.size)
+        GLES20.glUniform1f(pSpeedScaleLoc, p.speed)
+        GLES20.glUniform1f(pTwistScaleLoc, p.twist)
+        GLES20.glUniform1f(pColorScaleLoc, p.color)
+        GLES20.glUniform1f(pBloomScaleLoc, p.bloom)
+        GLES20.glUniform1f(pScatterScaleLoc, p.scatter)
 
         bindAttribute(pPosLoc, posBuffer, 1)
         bindAttribute(pSeedLoc, seedBuffer, 1)

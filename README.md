@@ -39,6 +39,43 @@
 - **播放服务**：`PlaybackService` 继承 `MediaSessionService`，自动持有前台通知 + 锁屏媒体控件（替代桌面歌词悬浮窗）
 - **UI 完整度**：底栏 1:1 复刻桌面版 `#bottom-bar` 三段式（actions / transport / modes），DIY 配置真正驱动歌词与粒子背景渲染
 
+### 原生 Android 还原进度（P1 完成）
+
+原生 Android 端已按桌面版 `public/index.html` 完成两阶段功能/UI/特效还原：
+
+**P0 阶段（基础对齐）**
+- `BottomControlBar` 三段式：音质 pill / 喜欢 / 收藏 / 播放模式 / 迷你队列 / 歌词开关 / 自动隐藏 / 沉浸 / 可拖拽进度条
+- `LyricStage` 消费 FxState：overlayColors + lyricScale / Weight / LetterSpacing / LineHeight / Font
+- `CoverCropModal` 九宫格裁剪舞台 + 香槟金内发光
+- `ParticleGalaxyBackground` DIY 驱动：custom 配色实时传入渲染器
+- `FxState` 字段补齐：lyricFont / lyricLetterSpacing / lyricLineHeight / lyricWeight / lyricScale
+
+**P1 阶段（视觉控制台与弹窗体系）**
+- `FxState` / `FxArchiveSnapshot` 同步：粒子高级参数（particleSize/Speed/Twist/Color/Bloom/Scatter/BgFade）+ 3D 架参数（shelfSize/X/Y/Z/Angle/Opacity/BgAlpha/Accent/ShowPodcasts/MergeCollections/CameraMode/PresenceMode）+ cameraInteraction
+- `ParticleGalaxyRenderer` + GLSL 着色器接入 7 个粒子 uniform（uSizeScale/uSpeedScale/uTwistScale/uColorScale/uBloomScale/uScatterScale + bgFade），高光阈值与溢光强度由 DIY 实时调节
+- `ShelfRenderer` 接入 3D 架参数：全局 translate(offset)+rotate(angle)，片元着色器用 uAccent 替代硬编码香槟金，col.a 乘 uOpacity
+- `SearchBar` 4 模式 tab（all/netease/qq/podcast），播客搜索分流到 podcastSearchResults
+- `FxPanel` 完整视觉控制台：6 个可折叠 fold（视觉预设 / 主控 / 歌词 / 叠加壁纸 / 3D 歌单架 / 粒子星河高级），直接绑定 FxState，色彩行调起色彩实验室
+- `CustomLyricModal` LRC 编辑器：粘贴 `[mm:ss.xx]` 时间轴或纯文本，保存即解析应用
+- `ColorLabPop` 色彩实验室：HSV 三滑块 + 8 预设色板，按 target 应用到 lyric/highlight/glow/tint/shelfAccent
+- `VisualGuide` 首次使用引导：5 步分步卡片（DIY/3D架/色彩实验室/自定义歌词/沉浸），进度点 + 跳过
+- `LocalBeatModal` 本地节奏分析：Canvas 滚动波形 + BPM 估算结果展示
+- `CoverCropModal` 接入实际封面：Coil 异步加载当前曲目封面 → Bitmap，裁剪后写回 MediaSession artwork
+- `TopBar` 更新角标：设置图标 `BadgedBox` 显示新版本号，新增视觉控制台/自定义歌词/本地节奏/使用引导入口
+- `PlayerController.setArtworkBitmap`：裁剪封面写入缓存并替换当前 MediaItem artworkUri
+
+**渲染管线总览**
+
+```
+FxState (DIY 配置)
+  ├─→ ParticleGalaxyBackground → ParticleGalaxyRenderer (GLES2)
+  │     └─ 7 个粒子 uniform + bgFade 背景压缩
+  ├─→ Shelf3DPanel → ShelfRenderer (GLES2)
+  │     └─ uAccent/uOpacity/uBgAlpha + 全局 transform
+  └─→ LyricStage (Compose)
+        └─ overlayColors + 字体/字间距/行高/字重/缩放
+```
+
 ---
 
 ## 🛠️ 打包与编译方法
