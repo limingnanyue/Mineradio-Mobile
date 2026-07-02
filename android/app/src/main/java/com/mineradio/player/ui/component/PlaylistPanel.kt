@@ -55,6 +55,8 @@ fun PlaylistPanel(
     onCyclePlayMode: () -> Unit,
     playModeLabel: String,
     onSongClick: (Song, List<Song>) -> Unit,
+    onJumpTo: (Int) -> Unit = {},
+    onRemove: (Int) -> Unit = {},
     onPlaylistClick: (Playlist) -> Unit,
     onRefreshPlaylists: () -> Unit,
     onRefreshPodcasts: () -> Unit,
@@ -123,6 +125,8 @@ fun PlaylistPanel(
                         onCyclePlayMode = onCyclePlayMode,
                         onClearQueue = onClearQueue,
                         onSongClick = onSongClick,
+                        onJumpTo = onJumpTo,
+                        onRemove = onRemove,
                     )
                 }
             }
@@ -158,6 +162,8 @@ private fun QueuePane(
     onCyclePlayMode: () -> Unit,
     onClearQueue: () -> Unit,
     onSongClick: (Song, List<Song>) -> Unit,
+    onJumpTo: (Int) -> Unit = {},
+    onRemove: (Int) -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth(),
@@ -198,7 +204,7 @@ private fun QueuePane(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (idx == currentIndex) MineradioColors.FcAccent.copy(alpha = 0.12f) else Color.Transparent)
-                        .clickable { onSongClick(song, queue) }
+                        .clickable { onJumpTo(idx) }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -216,6 +222,15 @@ private fun QueuePane(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // 移除按钮（对应桌面版队列行「×」按钮）
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onRemove(idx) }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text("×", color = MineradioColors.FcMuted, fontSize = 14.sp)
+                    }
                 }
             }
         }

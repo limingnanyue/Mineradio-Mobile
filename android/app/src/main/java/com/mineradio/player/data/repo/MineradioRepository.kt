@@ -54,20 +54,43 @@ class MineradioRepository(
         }
 
     // ---- 歌曲 URL（按源分流）----
-    suspend fun songUrl(song: Song): SongUrl = withContext(Dispatchers.IO) {
+    /** 把 playbackQuality（auto/sq/hq/lossless/hires/master）映射为 br 与 level。 */
+    private fun qualityToBr(quality: String): Pair<Long, String?> = when (quality) {
+        "sq" -> 128000L to "standard"
+        "hq" -> 192000L to "higher"
+        "lossless" -> 320000L to "exhigh"
+        "hires" -> 999000L to "lossless"
+        "master" -> 1999000L to "hires"
+        else -> 320000L to null  // auto
+    }
+
+    suspend fun songUrl(song: Song, quality: String = "auto"): SongUrl = withContext(Dispatchers.IO) {
         if (song.source == "qq" && !song.mid.isNullOrEmpty()) {
             api().getQqSongUrl(song.mid, song.mediaMid)
         } else {
-            api().getSongUrl(song.id)
+            val (br, level) = qualityToBr(quality)
+            api().getSongUrl(song.id, br, level)
         }
     }
 
-    /** 解析播放用的最终音频 URL，自动套后端流式代理。 */
-    suspend fun resolvePlayableUrl(song: Song): String = withContext(Dispatchers.IO) {
-        val res = songUrl(song)
-        val raw = res.url?.takeIf { it.isNotBlank() } ?: return@withContext ""
-        backendConfig.audioProxyUrl(raw, backendConfig.baseUrl())
+    /** 解析播放用的最终音频 URL + 元信息（试听/音质/VIP），自动套后端流式代理。 */
+    suspend fun resolvePlayable(song: Song, quality: String = "auto"): ResolvedPlayable = withContext(Dispatchers.IO) {
+        val res = songUrl(song, quality)
+        val raw = res.url?.takeIf { it.isNotBlank() }
+        val proxied = raw?.let { backendConfig.audioProxyUrl(it, backendConfig.baseUrl()) }.orEmpty()
+        ResolvedPlayable(
+            url = proxied,
+            isTrial = res.isTrial,
+            vipLevel = res.vipLevel,
+            br = res.br,
+            level = res.level,
+            qualityLabel = res.qualityLabel,
+            freeTrialInfo = res.freeTrialInfo,
+        )
     }
+
+    /** 旧版兼容：只返回 URL 字符串。 */
+    suspend fun resolvePlayableUrl(song: Song): String = resolvePlayable(song).url
 
     // ---- 歌词 ----
     suspend fun lyric(song: Song): Lyric = withContext(Dispatchers.IO) {

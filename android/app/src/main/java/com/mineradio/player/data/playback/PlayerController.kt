@@ -151,6 +151,48 @@ class PlayerController(private val context: Context) {
         playQueue(listOf(song), listOf(url), 0)
     }
 
+    // ---- 队列操作（对应桌面版 queueSongNext / appendToQueue / removeFromQueue / playQueueAt）----
+
+    /** 下一首播放：把歌曲插入到当前曲目之后（对应桌面版 queueSongNext）。 */
+    fun playNext(song: Song, url: String) {
+        val c = controller ?: return
+        val idx = c.currentMediaItemIndex + 1
+        val item = song.toMediaItem(url)
+        c.addMediaItem(idx, item)
+        _state.update { s ->
+            val newQueue = s.queue.toMutableList().also { it.add(idx, song) }
+            s.copy(queue = newQueue)
+        }
+    }
+
+    /** 添加到队列末尾（对应桌面版 appendToQueue）。 */
+    fun appendToQueue(song: Song, url: String) {
+        val c = controller ?: return
+        val item = song.toMediaItem(url)
+        c.addMediaItem(item)
+        _state.update { s -> s.copy(queue = s.queue + song) }
+    }
+
+    /** 从队列移除指定索引项（对应桌面版 removeFromQueue）。 */
+    fun removeQueueItem(index: Int) {
+        val c = controller ?: return
+        if (index !in 0 until c.mediaItemCount) return
+        c.removeMediaItem(index)
+        _state.update { s ->
+            val newQueue = s.queue.toMutableList().also { it.removeAt(index) }
+            val newIndex = (c.currentMediaItemIndex).coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
+            s.copy(queue = newQueue, queueIndex = newIndex)
+        }
+    }
+
+    /** 跳转到队列中指定索引（对应桌面版 playQueueAt，不重新解析 URL）。 */
+    fun jumpTo(index: Int) {
+        val c = controller ?: return
+        if (index !in 0 until c.mediaItemCount) return
+        c.seekToDefaultPosition(index)
+        _state.update { it.copy(queueIndex = index) }
+    }
+
     fun playPause() {
         val c = controller ?: return
         if (c.isPlaying) c.pause() else {

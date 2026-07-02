@@ -34,7 +34,25 @@ data class LoginStatus(
     val error: String? = null,
     val playbackKeyReady: Boolean? = null,
     val saved: Boolean? = null,
-)
+    // VIP 信息（对应桌面版 data.vipType / vipLevel / isVip / isSvip / vipLabel）
+    val vipType: Int? = null,
+    val vipLevel: Int? = null,
+    val isVip: Boolean? = null,
+    val isSvip: Boolean? = null,
+    val vipLabel: String? = null,
+) {
+    /** 派生：是否为 VIP 用户（任一 VIP 标志为真即视为 VIP）。 */
+    val isVipUser: Boolean get() = isVip == true || isSvip == true || (vipType != null && vipType > 0)
+    /** 派生：VIP 展示文案（优先 vipLabel，其次 SVIP/VIP，无则空串）。 */
+    val displayVipLabel: String
+        get() = when {
+            vipLabel?.isNotEmpty() == true -> vipLabel!!
+            isSvip == true -> "SVIP"
+            isVip == true -> "VIP"
+            vipLevel != null && vipLevel > 0 -> "VIP $vipLevel"
+            else -> ""
+        }
+}
 
 data class CookieLoginRequest(val cookie: String)
 data class QrKey(val key: String? = null, val url: String? = null)
@@ -76,6 +94,20 @@ data class Artist(
 
 data class FreeTrialInfo(val start: Long = 0, val end: Long = 0)
 
+/**
+ * 解析后的可播放结果 —— 把 resolvePlayableUrl 的纯字符串升级为结构体，
+ * 携带试听 / VIP / 音质信息，供 TrialBanner / SourceFallbackNotice / QualityPill 消费。
+ */
+data class ResolvedPlayable(
+    val url: String = "",
+    val isTrial: Boolean = false,
+    val vipLevel: Int? = null,
+    val br: Long = 0,
+    val level: String? = null,
+    val qualityLabel: String = "未知",
+    val freeTrialInfo: FreeTrialInfo? = null,
+)
+
 data class SongUrl(
     val id: Long? = null,
     val url: String? = null,
@@ -84,7 +116,24 @@ data class SongUrl(
     val type: String? = null,
     val source: String? = null,
     val message: String? = null,
-)
+    // 试听/VIP/音质信息（对应桌面版 data.trial / data.vipLevel / data.level / data.freeTrialInfo）
+    val trial: Boolean? = null,
+    val vipLevel: Int? = null,
+    val level: String? = null,
+    val freeTrialInfo: FreeTrialInfo? = null,
+) {
+    /** 派生：是否为试听片段（trial=true 或 freeTrialInfo 非空）。 */
+    val isTrial: Boolean get() = trial == true || freeTrialInfo != null
+    /** 派生：实际音质档位文案。 */
+    val qualityLabel: String
+        get() = when {
+            br >= 999000L -> "Hi-Res"
+            br >= 320000L -> "无损"
+            br >= 192000L -> "HQ"
+            br > 0L -> "标准"
+            else -> "未知"
+        }
+}
 
 // ---- 搜索 ----
 data class SearchResult(

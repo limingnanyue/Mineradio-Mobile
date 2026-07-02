@@ -53,7 +53,7 @@ interface MineradioApi {
 
     // ===== 歌曲 URL =====
     @GET("api/song/url")
-    suspend fun getSongUrl(@Query("id") id: Long, @Query("br") br: Long = 320000): SongUrl
+    suspend fun getSongUrl(@Query("id") id: Long, @Query("br") br: Long = 320000, @Query("level") level: String? = null): SongUrl
 
     @GET("api/qq/song/url")
     suspend fun getQqSongUrl(

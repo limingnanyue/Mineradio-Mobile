@@ -264,6 +264,19 @@ fun AccountPanel(
                     Spacer(Modifier.height(4.dp))
                     Text("UID: ${active.userId}", color = MineradioColors.FcMuted, fontSize = 11.sp)
                 }
+                // VIP 标签（对应桌面版 #user-modal-vip，index.html:2518-2522）
+                val vipLabel = active?.displayVipLabel
+                if (!vipLabel.isNullOrEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MineradioColors.Champagne.copy(alpha = 0.18f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(vipLabel, color = MineradioColors.Champagne, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 Spacer(Modifier.height(20.dp))
                 // 平台切换
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

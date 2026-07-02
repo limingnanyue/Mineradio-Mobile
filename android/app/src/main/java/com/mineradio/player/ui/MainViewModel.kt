@@ -144,6 +144,7 @@ data class UiState(
     val updateHeroSub: String = "",                        // 副文案
     val updateDownloading: Boolean = false,                // 是否下载中
     val updateDownloadProgress: Float = 0f,                // 0..1
+    val updateDownloadUrl: String = "",                    // 最新版本下载页地址（startUpdateDownload 用）
     // ---- 全局加载浮层（对应桌面版 #loading-overlay）----
     val globalLoading: Boolean = false,
     // ---- 听歌画像（对应桌面版 listenStatsState / homeListenSummary）----
@@ -202,6 +203,9 @@ class MainViewModel(
                 fxArchives = loadPersistedFxArchives(),
                 listenSummary = listenTracker.summary(),
                 recentListen = listenTracker.recentSongs(5),
+                visualGuideSeen = prefs.getBoolean("visual_guide_seen", false),
+                activeSource = prefs.getString("active_source", "netease") ?: "netease",
+                fx = loadPersistedFx(),
             )
         }
         // 监听后端地址变化，地址变化后刷新登录态与首页
@@ -211,6 +215,8 @@ class MainViewModel(
                 refreshAll()
             }
         }
+        // 启动时检查更新（对应桌面版 checkLatestUpdate on app ready）
+        checkForUpdate()
         // 听歌画像会话钩子：监听 playback StateFlow，按 current / positionMs / isPlaying 驱动 begin/tick/finalize。
         // 对应桌面版 onAudioTimeUpdate→updateListenStatsTick、onSongChanged→beginListenSession、STATE_ENDED→finalizeListenSession(true)。
         viewModelScope.launch(handler) {
@@ -258,6 +264,118 @@ class MainViewModel(
         }
     }
 
+    /**
+     * 加载持久化的实时 FX 状态（对应桌面版启动时读 localStorage.fx）。
+     * 复用 FX 存档的 snapshot 序列化：把 fx_current JSON 反序列化为 FxArchiveSnapshot，
+     * 再应用回 FxState（applyFxSnapshot 的只读版本，不依赖 UiState）。
+     */
+    private fun loadPersistedFx(): FxState {
+        val json = prefs.getString("fx_current", null) ?: return FxState()
+        val snap = runCatching { jsonToSnapshot(json) }.getOrNull() ?: return FxState()
+        return FxState().run {
+            copy(
+                preset = snap.preset,
+                desktopLyrics = snap.desktopLyrics,
+                desktopLyricsSize = snap.desktopLyricsSize,
+                desktopLyricsOpacity = snap.desktopLyricsOpacity,
+                desktopLyricsY = snap.desktopLyricsY,
+                desktopLyricsClickThrough = snap.desktopLyricsClickThrough,
+                desktopLyricsCinema = snap.desktopLyricsCinema,
+                desktopLyricsHighlight = snap.desktopLyricsHighlight,
+                desktopLyricsFps = snap.desktopLyricsFps,
+                lyricColorMode = snap.lyricColorMode,
+                lyricColor = Color(snap.lyricColor),
+                lyricHighlightColor = Color(snap.lyricHighlightColor),
+                lyricGlowColor = Color(snap.lyricGlowColor),
+                visualTintColor = Color(snap.visualTintColor),
+                lyricGlowParticles = snap.lyricGlowParticles,
+                wallpaperMode = snap.wallpaperMode,
+                wallpaperOpacity = snap.wallpaperOpacity,
+                customBgType = snap.customBgType,
+                customBgColor = Color(snap.customBgColor),
+                customBgUri = snap.customBgUri,
+                lyricFont = snap.lyricFont,
+                lyricLetterSpacing = snap.lyricLetterSpacing,
+                lyricLineHeight = snap.lyricLineHeight,
+                lyricWeight = snap.lyricWeight,
+                lyricScale = snap.lyricScale,
+                particleSize = snap.particleSize,
+                particleSpeed = snap.particleSpeed,
+                particleTwist = snap.particleTwist,
+                particleColor = snap.particleColor,
+                particleBloom = snap.particleBloom,
+                particleScatter = snap.particleScatter,
+                particleBgFade = snap.particleBgFade,
+                shelfSize = snap.shelfSize,
+                shelfX = snap.shelfX,
+                shelfY = snap.shelfY,
+                shelfZ = snap.shelfZ,
+                shelfAngle = snap.shelfAngle,
+                shelfOpacity = snap.shelfOpacity,
+                shelfBgAlpha = snap.shelfBgAlpha,
+                shelfAccent = Color(snap.shelfAccent),
+                shelfShowPodcasts = snap.shelfShowPodcasts,
+                shelfMergeCollections = snap.shelfMergeCollections,
+                shelfCameraMode = snap.shelfCameraMode,
+                shelfPresenceMode = snap.shelfPresenceMode,
+                cameraInteraction = snap.cameraInteraction,
+            )
+        }
+    }
+
+    /** 把当前 FxState 序列化为 JSON 并写入 prefs（对应桌面版 localStorage.fx = JSON.stringify(fx)）。 */
+    private fun persistFx(fx: FxState) {
+        val snap = FxArchiveSnapshot(
+            preset = fx.preset,
+            desktopLyrics = fx.desktopLyrics,
+            desktopLyricsSize = fx.desktopLyricsSize,
+            desktopLyricsOpacity = fx.desktopLyricsOpacity,
+            desktopLyricsY = fx.desktopLyricsY,
+            desktopLyricsClickThrough = fx.desktopLyricsClickThrough,
+            desktopLyricsCinema = fx.desktopLyricsCinema,
+            desktopLyricsHighlight = fx.desktopLyricsHighlight,
+            desktopLyricsFps = fx.desktopLyricsFps,
+            lyricColorMode = fx.lyricColorMode,
+            lyricColor = fx.lyricColor.value.toLong(),
+            lyricHighlightColor = fx.lyricHighlightColor.value.toLong(),
+            lyricGlowColor = fx.lyricGlowColor.value.toLong(),
+            visualTintColor = fx.visualTintColor.value.toLong(),
+            lyricGlowParticles = fx.lyricGlowParticles,
+            wallpaperMode = fx.wallpaperMode,
+            wallpaperOpacity = fx.wallpaperOpacity,
+            customBgType = fx.customBgType,
+            customBgColor = fx.customBgColor.value.toLong(),
+            customBgUri = fx.customBgUri,
+            lyricFont = fx.lyricFont,
+            lyricLetterSpacing = fx.lyricLetterSpacing,
+            lyricLineHeight = fx.lyricLineHeight,
+            lyricWeight = fx.lyricWeight,
+            lyricScale = fx.lyricScale,
+            particleSize = fx.particleSize,
+            particleSpeed = fx.particleSpeed,
+            particleTwist = fx.particleTwist,
+            particleColor = fx.particleColor,
+            particleBloom = fx.particleBloom,
+            particleScatter = fx.particleScatter,
+            particleBgFade = fx.particleBgFade,
+            shelfSize = fx.shelfSize,
+            shelfX = fx.shelfX,
+            shelfY = fx.shelfY,
+            shelfZ = fx.shelfZ,
+            shelfAngle = fx.shelfAngle,
+            shelfOpacity = fx.shelfOpacity,
+            shelfBgAlpha = fx.shelfBgAlpha,
+            shelfAccent = fx.shelfAccent.value.toLong(),
+            shelfShowPodcasts = fx.shelfShowPodcasts,
+            shelfMergeCollections = fx.shelfMergeCollections,
+            shelfCameraMode = fx.shelfCameraMode,
+            shelfPresenceMode = fx.shelfPresenceMode,
+            cameraInteraction = fx.cameraInteraction,
+        )
+        val json = snapshotToJson(snap)
+        prefs.edit().putString("fx_current", json).apply()
+    }
+
     /** 搜索历史持久化（对应桌面版 localStorage searchHistory）。 */
     private fun loadSearchHistory(): List<String> =
         prefs.getString("search_history", null)?.split("\n")?.filter { it.isNotEmpty() }.orEmpty()
@@ -274,6 +392,7 @@ class MainViewModel(
 
     fun toggleSettings() = _state.update { it.copy(showSettings = !it.showSettings) }
     fun setSource(source: String) {
+        prefs.edit().putString("active_source", source).apply()
         _state.update { it.copy(activeSource = source) }
         refreshUserPlaylists()
     }
@@ -398,16 +517,21 @@ class MainViewModel(
         }
     }
 
-    /** 点击歌曲：解析可播放 URL → 加入播放队列 → 拉歌词。 */
+    /** 点击歌曲：解析可播放 URL → 加入播放队列 → 拉歌词 → 驱动试听/音质角标。 */
     fun playSong(song: Song, queue: List<Song> = listOf(song)) {
         viewModelScope.launch(handler) {
             val idx = queue.indexOf(song).coerceAtLeast(0)
             // 先解析目标歌曲 URL（保证快速起播），其余队列懒解析
-            val firstUrl = repo.resolvePlayableUrl(song)
+            val quality = _state.value.playbackQuality
+            val first = repo.resolvePlayable(song, quality)
+            // 驱动试听横幅（对应桌面版 data.trial → showTrialBanner）
+            if (first.isTrial) showTrialBanner("仅播放试听片段") else hideTrialBanner()
+            // 驱动音质角标（对应桌面版 quality-chip）
+            if (first.br > 0L) showBeatChip(first.qualityLabel) else hideBeatChip()
             val urls = ArrayList<String>(queue.size)
             for (i in queue.indices) {
                 if (i == idx) {
-                    urls.add(firstUrl)
+                    urls.add(first.url)
                 } else {
                     val u = runCatching { repo.resolvePlayableUrl(queue[i]) }.getOrNull().orEmpty()
                     urls.add(u)
@@ -674,6 +798,43 @@ class MainViewModel(
         playSong(songs.first(), songs)
     }
 
+    // ---- 队列操作（对应桌面版 queueSongNext / appendToQueue / removeFromQueue / playQueueAt）----
+    /** 下一首播放：解析 URL 后插入到当前曲目之后。 */
+    fun playNextInQueue(song: Song) {
+        viewModelScope.launch(handler) {
+            val url = repo.resolvePlayableUrl(song)
+            if (url.isEmpty()) {
+                _state.update { it.copy(toast = "无法获取播放地址") }
+                return@launch
+            }
+            player.playNext(song, url)
+            _state.update { it.copy(toast = "已设为下一首") }
+        }
+    }
+
+    /** 添加到队列末尾。 */
+    fun appendToQueue(song: Song) {
+        viewModelScope.launch(handler) {
+            val url = repo.resolvePlayableUrl(song)
+            if (url.isEmpty()) {
+                _state.update { it.copy(toast = "无法获取播放地址") }
+                return@launch
+            }
+            player.appendToQueue(song, url)
+            _state.update { it.copy(toast = "已加入播放队列") }
+        }
+    }
+
+    /** 从队列移除指定索引项。 */
+    fun removeQueueItem(index: Int) {
+        player.removeQueueItem(index)
+    }
+
+    /** 跳转到队列中指定索引（不重新解析 URL）。若索引超出当前队列则忽略。 */
+    fun jumpToQueue(index: Int) {
+        player.jumpTo(index)
+    }
+
     fun playPause() = player.playPause()
     fun seekTo(ms: Long) = player.seekTo(ms)
     fun skipNext() = player.skipNext()
@@ -835,17 +996,17 @@ class MainViewModel(
     /** 色彩实验室选色后应用到 FxState 指定字段。 */
     fun applyColorLab(color: androidx.compose.ui.graphics.Color) {
         val target = _state.value.colorLabTarget
-        val fx = _state.value.fx
-        val newFx = when (target) {
-            "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
-            "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
-            "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
-            "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
-            "shelfAccent" -> fx.copy(shelfAccent = color)
-            "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
-            else -> fx
+        updateFx { fx ->
+            when (target) {
+                "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
+                "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
+                "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
+                "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
+                "shelfAccent" -> fx.copy(shelfAccent = color)
+                "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
+                else -> fx
+            }
         }
-        _state.update { it.copy(fx = newFx) }
     }
 
     // ---- 封面取色弹层（对应桌面版 .cover-color-pop）----
@@ -855,46 +1016,76 @@ class MainViewModel(
     /** 封面取色后应用到 FxState 指定字段（复用 applyColorLab 的目标映射逻辑）。 */
     fun applyCoverColor(color: androidx.compose.ui.graphics.Color) {
         val target = _state.value.coverColorTarget
-        val fx = _state.value.fx
-        val newFx = when (target) {
-            "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
-            "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
-            "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
-            "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
-            "shelfAccent" -> fx.copy(shelfAccent = color)
-            "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
-            else -> fx
+        updateFx { fx ->
+            when (target) {
+                "lyric" -> fx.copy(lyricColor = color, lyricColorMode = "custom")
+                "highlight" -> fx.copy(lyricHighlightColor = color, lyricColorMode = "custom")
+                "glow" -> fx.copy(lyricGlowColor = color, lyricColorMode = "custom")
+                "tint" -> fx.copy(visualTintColor = color, lyricColorMode = "custom")
+                "shelfAccent" -> fx.copy(shelfAccent = color)
+                "bgColor" -> fx.copy(customBgColor = color, customBgType = "color")
+                else -> fx
+            }
         }
-        _state.update { it.copy(fx = newFx) }
     }
 
     // ---- 自定义背景（对应桌面版 wallpaperType / wallpaperColor / wallpaperImage / wallpaperVideo）----
     /** 切换背景类型：none=默认粒子 / color=纯色 / image=图片 / video=视频。 */
-    fun setCustomBgType(type: String) = _state.update {
-        it.copy(fx = it.fx.copy(customBgType = type))
-    }
+    fun setCustomBgType(type: String) = updateFx { it.copy(customBgType = type) }
 
     /** 设置纯色背景颜色。 */
-    fun setCustomBgColor(color: androidx.compose.ui.graphics.Color) = _state.update {
-        it.copy(fx = it.fx.copy(customBgColor = color, customBgType = "color"))
+    fun setCustomBgColor(color: androidx.compose.ui.graphics.Color) = updateFx {
+        it.copy(customBgColor = color, customBgType = "color")
     }
 
     /** 设置图片/视频背景 URI。type 必须为 "image" 或 "video"。 */
-    fun setCustomBgUri(type: String, uri: String) = _state.update {
-        it.copy(fx = it.fx.copy(customBgType = type, customBgUri = uri))
+    fun setCustomBgUri(type: String, uri: String) = updateFx {
+        it.copy(customBgType = type, customBgUri = uri)
     }
 
     /** 清除自定义背景，回到默认粒子星河。 */
-    fun clearCustomBg() = _state.update {
-        it.copy(fx = it.fx.copy(customBgType = "none", customBgUri = ""))
-    }
+    fun clearCustomBg() = updateFx { it.copy(customBgType = "none", customBgUri = "") }
 
     // ---- 视觉引导（对应桌面版 #visual-guide）----
     fun toggleVisualGuide() = _state.update { it.copy(showVisualGuide = !it.showVisualGuide) }
-    fun dismissVisualGuide() = _state.update { it.copy(showVisualGuide = false, visualGuideSeen = true) }
+    fun dismissVisualGuide() {
+        prefs.edit().putBoolean("visual_guide_seen", true).apply()
+        _state.update { it.copy(showVisualGuide = false, visualGuideSeen = true) }
+    }
 
     // ---- 本地节奏分析（对应桌面版 #local-beat-modal）----
     fun toggleLocalBeat() = _state.update { it.copy(showLocalBeat = !it.showLocalBeat) }
+
+    /**
+     * 节奏分析 —— 对应桌面版 analyzeBeatmap。
+     * 优先查后端缓存（repo.beatmap），缺失时走 DJ 在线分析（repo.podcastDjBeatmap）。
+     * 分析完成后通过 onResult 回调返回 BPM 整数，并联动 BeatChip 角标。
+     */
+    fun analyzeBeat(mode: String, onResult: (Int) -> Unit) {
+        val song = playback.value.current
+        viewModelScope.launch(handler) {
+            showBeatChip("分析节奏…")
+            val bpm = if (song == null) {
+                0
+            } else {
+                val key = "${song.source}:${song.id}"
+                // 1. 先查缓存
+                val cached = runCatching { repo.beatmap(key) }.getOrNull()
+                if (cached != null && cached.bpm > 0f) {
+                    cached.bpm.toInt()
+                } else {
+                    // 2. 缓存缺失：走 DJ 在线分析（需可播放 URL 与时长）
+                    val url = repo.resolvePlayableUrl(song)
+                    if (url.isEmpty() || song.duration <= 0) 0
+                    else runCatching {
+                        repo.podcastDjBeatmap(url, song.duration * 1000L).bpm.toInt()
+                    }.getOrDefault(0)
+                }
+            }
+            onResult(bpm)
+            if (bpm > 0) showBeatChip("$bpm BPM") else hideBeatChip()
+        }
+    }
 
     // ---- 更新面板（对应桌面版 #update-modal / #update-entry）----
     fun toggleUpdateModal() = _state.update { it.copy(showUpdateModal = !it.showUpdateModal) }
@@ -913,23 +1104,48 @@ class MainViewModel(
         }
     }
 
-    /** 模拟下载更新 —— 对应桌面版 startUpdatePreviewDownload()。
-     *  移动端无 Electron autoupdater，这里用协程模拟下载进度。 */
-    fun startUpdateDownload() {
-        if (_state.value.updateDownloading) return
-        _state.update { it.copy(updateDownloading = true, updateDownloadProgress = 0f) }
+    /** 检查更新 —— 对应桌面版 checkLatestUpdate() / applyLatestUpdateInfo(info)。
+     *  在 init 时调用，比对版本号后填充更新面板内容。 */
+    fun checkForUpdate() {
         viewModelScope.launch(handler) {
-            for (i in 1..100) {
-                delay(60)
-                _state.update { it.copy(updateDownloadProgress = i / 100f) }
-            }
-            _state.update {
-                it.copy(
-                    updateDownloading = false,
-                    updateDownloadProgress = 1f,
-                    toast = "新版本已下载，重启应用以完成更新",
+            val appVer = runCatching { repo.getAppVersion() }.getOrNull() ?: return@launch
+            val latest = runCatching { repo.checkUpdate() }.getOrNull() ?: return@launch
+            val current = appVer.version ?: return@launch
+            val remote = latest.version ?: return@launch
+            if (current != remote && remote.isNotEmpty()) {
+                // 拼接下载页 URL：优先 GitHub releases（owner/repo），无则用后端 baseUrl
+                val downloadUrl = latest.update?.let { u ->
+                    when {
+                        !u.owner.isNullOrEmpty() && !u.repo.isNullOrEmpty() ->
+                            "https://github.com/${u.owner}/${u.repo}/releases/latest"
+                        else -> null
+                    }
+                } ?: _state.value.backendUrl
+                setUpdateInfo(
+                    version = remote,
+                    changelog = listOf("发现新版本 $remote", "当前版本 $current", "点击下方按钮前往下载页"),
+                    heroMain = "新版本可用",
+                    heroSub = "$current → $remote",
                 )
+                _state.update { it.copy(updateDownloadUrl = downloadUrl) }
             }
+        }
+    }
+
+    /** 打开系统浏览器跳转下载页 —— 移动端无 Electron autoupdater，
+     *  用 ACTION_VIEW 打开最新版本下载页（对应桌面版 startUpdatePreviewDownload 的下载行为）。 */
+    fun startUpdateDownload() {
+        val url = _state.value.updateDownloadUrl
+        if (url.isEmpty()) {
+            _state.update { it.copy(toast = "暂无下载地址，请前往官网获取") }
+            return
+        }
+        runCatching {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(intent)
+        }.onFailure { e ->
+            _state.update { it.copy(toast = "无法打开下载页: ${e.message}") }
         }
     }
 
@@ -986,7 +1202,20 @@ class MainViewModel(
             val res = runCatching { repo.createPlaylist(name) }.getOrNull()
             if (res?.code == 200 && res.id != 0L) {
                 refreshUserPlaylists()
-                _state.update { it.copy(toast = "已创建歌单「$name」") }
+                // 若处于收藏弹窗流程中（collectTargetSong 非空），自动把目标曲目加入新歌单
+                val target = _state.value.collectTargetSong
+                if (target != null) {
+                    val addRes = runCatching { repo.addSongToPlaylist(res.id, target.id) }.getOrNull()
+                    if (addRes?.code == 200) {
+                        _state.update {
+                            it.copy(toast = "已创建「$name」并收藏", showCollect = false, collectTargetSong = null)
+                        }
+                    } else {
+                        _state.update { it.copy(toast = "已创建「$name」，收藏失败：${addRes?.message ?: "未知"}") }
+                    }
+                } else {
+                    _state.update { it.copy(toast = "已创建歌单「$name」") }
+                }
             } else {
                 _state.update { it.copy(toast = "创建失败：${res?.message ?: "未知"}") }
             }
@@ -1052,6 +1281,13 @@ class MainViewModel(
         _state.update { it.copy(showTrialBanner = true, trialText = text, trialLoggedIn = loggedIn) }
     }
 
+    /** 单参重载：loggedIn 默认取当前登录态（任一源登录即视为已登录）。 */
+    fun showTrialBanner(text: String) {
+        val loggedIn = _state.value.let { it.neteaseLogin?.loggedIn == true || it.qqLogin?.loggedIn == true }
+        showTrialBanner(text, loggedIn)
+    }
+
+    fun hideTrialBanner() = _state.update { it.copy(showTrialBanner = false) }
     fun dismissTrialBanner() = _state.update { it.copy(showTrialBanner = false) }
 
     // ============ 节奏/AI 深度状态角标（对应桌面版 #beat-chip / #ai-depth-chip）============
@@ -1141,7 +1377,14 @@ class MainViewModel(
 
     /** 更新 FX 状态的通用入口。 */
     fun updateFx(transform: (FxState) -> FxState) {
-        _state.update { it.copy(fx = transform(it.fx)) }
+        var newFx: FxState? = null
+        _state.update {
+            val f = transform(it.fx)
+            newFx = f
+            it.copy(fx = f)
+        }
+        // 持久化到 prefs（对应桌面版 localStorage.fx = JSON.stringify(fx)）
+        newFx?.let { persistFx(it) }
     }
 
     /** 保存当前 FX 配置到指定槽位（glass-saved-button 行为）。 */
@@ -1387,6 +1630,12 @@ class MainViewModel(
             )
             s.copy(fx = fx, toast = "已加载 ${slot.name}")
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // 进程关闭 / ViewModel 销毁时 finalize 进行中的听歌会话（对应桌面版 beforeunload → finalizeListenSession）
+        listenTracker.finalize(completed = false)
     }
 
     /** 把 [mm:ss.xx] 文本解析为带时间戳的歌词行。 */

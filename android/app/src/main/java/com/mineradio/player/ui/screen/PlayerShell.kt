@@ -110,6 +110,8 @@ fun PlayerShell(
                 }
             }.getOrNull()
         } else {
+            // 模态关闭时回收大图 Bitmap，避免 ORIGINAL 尺寸封面占用内存
+            coverBitmap?.recycle()
             coverBitmap = null
         }
     }
@@ -194,17 +196,25 @@ fun PlayerShell(
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
         } else if (bgType == "video" && state.fx.customBgUri.isNotEmpty()) {
+            val videoUri = state.fx.customBgUri
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     android.widget.VideoView(ctx).apply {
-                        setVideoURI(android.net.Uri.parse(state.fx.customBgUri))
+                        setVideoURI(android.net.Uri.parse(videoUri))
                         setOnPreparedListener { mp -> mp.isLooping = true; mp.setVolume(0f, 0f); mp.start() }
                     }
                 },
                 update = { vv ->
-                    if (!vv.isPlaying) vv.start()
+                    // URI 变化时重新装载（tag 标记当前已装载的 URI）
+                    if (vv.tag != videoUri) {
+                        vv.setVideoURI(android.net.Uri.parse(videoUri))
+                        vv.tag = videoUri
+                    } else if (!vv.isPlaying) {
+                        vv.start()
+                    }
                 },
+                onRelease = { vv -> vv.stopPlayback() },
             )
         }
         // 1. 粒子星河背景（customBg 激活时降低不透明度，让自定义背景透出）
@@ -509,7 +519,10 @@ fun PlayerShell(
         }
         // 6.5.4 本地节奏分析（#local-beat-modal）
         AnimatedVisibility(visible = state.showLocalBeat, enter = fadeIn(), exit = fadeOut()) {
-            LocalBeatModal(onDismiss = vm::toggleLocalBeat)
+            LocalBeatModal(
+                onDismiss = vm::toggleLocalBeat,
+                onAnalyze = { mode, onResult -> vm.analyzeBeat(mode, onResult) },
+            )
         }
         // 6.5.5 更新面板（#update-modal）—— 完整结构：版本号 + 主副文案 + changelog 列表 + 下载进度按钮
         AnimatedVisibility(visible = state.showUpdateModal, enter = fadeIn(), exit = fadeOut()) {
@@ -785,6 +798,8 @@ fun PlayerShell(
                 onCyclePlayMode = vm::cyclePlayMode,
                 playModeLabel = playModeLabel,
                 onSongClick = { song, queue -> vm.playSong(song, queue) },
+                onJumpTo = vm::jumpToQueue,
+                onRemove = vm::removeQueueItem,
                 onPlaylistClick = { pl -> vm.togglePlaylistPanel(); vm.openPlaylistDetail(pl) },
                 onRefreshPlaylists = vm::refreshUserPlaylists,
                 onRefreshPodcasts = vm::loadPodcastHot,

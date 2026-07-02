@@ -50,6 +50,7 @@ import kotlin.math.sin
 @Composable
 fun LocalBeatModal(
     onDismiss: () -> Unit,
+    onAnalyze: (mode: String, onResult: (Int) -> Unit) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var mode by remember { mutableStateOf("mr") }       // mr / dj
@@ -183,12 +184,19 @@ fun LocalBeatModal(
                 Button(
                     onClick = {
                         if (done) {
+                            // 重新分析
                             analyzing = false
                             done = false
                             bpm = 0
                         } else {
+                            // 开始分析：调用外部 onAnalyze，回调更新 bpm 与 done
                             analyzing = true
                             done = false
+                            onAnalyze(mode) { resultBpm ->
+                                bpm = resultBpm
+                                analyzing = false
+                                done = true
+                            }
                         }
                     },
                     enabled = !analyzing,
