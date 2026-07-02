@@ -77,8 +77,10 @@ fun Shelf3DPanel(
     val context = LocalContext.current
     val shelfState = remember { ShelfState() }
     val scope = rememberCoroutineScope()
+    // 保留空串以与 playlists 索引对齐（selectedIndex 指向 playlists，过滤会错位）；
+    // 渲染器与加载循环会跳过空 URL。
     val coverUrls = remember(playlists) {
-        playlists.map { it.coverImgUrl ?: it.picUrl ?: "" }.filter { it.isNotEmpty() }
+        playlists.map { it.coverImgUrl ?: it.picUrl ?: "" }
     }
     var loadedCount by remember(playlists) { mutableStateOf(0) }
 
@@ -101,17 +103,21 @@ fun Shelf3DPanel(
         )
     }
 
-    // 用 Coil 异步加载封面 bitmap → 推入渲染器队列
+    // 用 Coil 异步加载封面 bitmap → 推入渲染器队列（空 URL 计入 loadedCount 以让进度走完）
     LaunchedEffect(coverUrls) {
         if (coverUrls.isEmpty()) return@LaunchedEffect
         val loader = ImageLoader(context)
         scope.launch {
-            for ((i, url) in coverUrls.withIndex()) {
-                val bmp = loadCover(loader, context, url) ?: continue
-                withContext(Dispatchers.Main) {
-                    shelfState.renderer.enqueueCover(url, bmp)
-                    loadedCount = i + 1
+            var loaded = 0
+            for (url in coverUrls) {
+                if (url.isNotEmpty()) {
+                    val bmp = loadCover(loader, context, url)
+                    if (bmp != null) {
+                        withContext(Dispatchers.Main) { shelfState.renderer.enqueueCover(url, bmp) }
+                    }
                 }
+                loaded++
+                withContext(Dispatchers.Main) { loadedCount = loaded }
             }
         }
     }

@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.mineradio.player.ui.theme.MineradioColors
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 封面裁剪舞台 —— 复刻桌面版 #cover-crop-modal / .cover-crop-stage（index.html:849-862, 2531-2550）。
@@ -89,10 +88,11 @@ fun CoverCropModal(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    // 图片：居中 + 平移 + 缩放
+                    // 图片：居中 + 平移 + 缩放（ContentScale.Crop 与裁剪数学一致）
                     androidx.compose.foundation.Image(
                         bitmap = imgBmp,
                         contentDescription = "待裁剪封面",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier
                             .size(280.dp)
                             .graphicsLayerScaleOffset(scale, offsetX, offsetY),
@@ -130,6 +130,7 @@ fun CoverCropModal(
                         androidx.compose.foundation.Image(
                             bitmap = imgBmp,
                             contentDescription = "预览",
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             modifier = Modifier
                                 .size(124.dp)
                                 .graphicsLayerScaleOffset(scale, offsetX, offsetY),
@@ -200,17 +201,33 @@ private fun drawGridLines(scope: androidx.compose.ui.graphics.drawscope.DrawScop
     scope.drawLine(lineColor, Offset(0f, 2 * h / 3), Offset(w, 2 * h / 3), strokeWidth = 1f)
 }
 
-/** 把当前 pan/zoom 状态裁剪成 512×512 方形 Bitmap（对应 makeSquareCoverCanvas）。 */
+/**
+ * 把当前 pan/zoom 状态裁剪成方形 Bitmap（对应桌面版 makeSquareCoverCanvas）。
+ *
+ * 数学：与 Compose 的 Image(ContentScale.Crop) + graphicsLayer(scale, translation) 完全一致。
+ *  - baseScale = max(stage/src.w, stage/src.h)  // Crop 填满舞台的基准缩放
+ *  - 总缩放 = baseScale * scale（用户缩放）
+ *  - 平移：图片居中后再平移 (offsetX, offsetY)
+ *  - 只绘制舞台 [0,stagePx]×[0,stagePx] 区域，再缩放到 outSize
+ */
 private fun cropToSquare(src: Bitmap, scale: Float, offsetX: Float, offsetY: Float, stagePx: Int): Bitmap {
     val outSize = 512
-    val result = Bitmap.createBitmap(outSize, outSize, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(result)
-    // 简化：以原图居中裁剪方形（移动端 pan/zoom 主要用于预览，提交时取居中方形）
-    val side = min(src.width, src.height)
-    val sx = max(0, (src.width - side) / 2)
-    val sy = max(0, (src.height - side) / 2)
-    val srcRect = android.graphics.Rect(sx, sy, sx + side, sy + side)
-    val dstRect = android.graphics.Rect(0, 0, outSize, outSize)
-    canvas.drawBitmap(src, srcRect, dstRect, null)
-    return result
+    // 舞台画布：先按舞台像素绘制可见区域
+    val stageBmp = Bitmap.createBitmap(stagePx, stagePx, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(stageBmp)
+    val baseScale = max(stagePx.toFloat() / src.width, stagePx.toFloat() / src.height)
+    val totalScale = baseScale * scale
+    // 居中：图片缩放后的尺寸 vs 舞台尺寸，差值对半居中，再加用户平移
+    val dx = (stagePx - src.width * totalScale) / 2f + offsetX
+    val dy = (stagePx - src.height * totalScale) / 2f + offsetY
+    val matrix = android.graphics.Matrix().apply {
+        setScale(totalScale, totalScale)
+        postTranslate(dx, dy)
+    }
+    canvas.save()
+    canvas.clipRect(0f, 0f, stagePx.toFloat(), stagePx.toFloat())
+    canvas.drawBitmap(src, matrix, null)
+    canvas.restore()
+    // 缩放到最终输出尺寸
+    return Bitmap.createScaledBitmap(stageBmp, outSize, outSize, true)
 }

@@ -362,7 +362,7 @@ fun PlayerShell(
             SearchBar(
                 value = searchText,
                 onValueChange = { searchText = it; vm.search(it) },
-                onSubmit = { vm.search(searchText) },
+                onSubmit = { vm.commitSearch(searchText) },
                 modifier = Modifier.fillMaxWidth(),
                 searchMode = state.searchMode,
                 onModeChange = vm::setSearchMode,
@@ -1001,13 +1001,7 @@ private fun SideRouter(
                 onContinueClick = vm::playRecentVoice,
                 onProfileClick = vm::toggleListenProfile,
                 onWeatherSongClick = vm::playWeatherSong,
-                onTileClick = { tile ->
-                    // 不同 tile kind 走不同行为：profile 打开画像弹层，其余复用每日推荐
-                    when (tile.kind) {
-                        "profile" -> vm.toggleListenProfile()
-                        else -> vm.playDailyRecommend()
-                    }
-                },
+                onPlaylistTileClick = vm::openPlaylistDetail,
             )
         }
         state.screen == Screen.PLAYLIST_LIBRARY -> PlaylistLibrary(

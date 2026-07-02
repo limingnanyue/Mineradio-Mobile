@@ -51,7 +51,7 @@ fun HomeGrid(
     onContinueClick: () -> Unit,
     onProfileClick: () -> Unit,
     onWeatherSongClick: (Int) -> Unit,
-    onTileClick: (HomeTile) -> Unit,
+    onPlaylistTileClick: (Playlist) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize().padding(16.dp)) {
@@ -77,7 +77,9 @@ fun HomeGrid(
             val profileCover = listenSummary?.topSong?.cover?.ifEmpty { null }
                 ?: listenSummary?.recent?.cover?.ifEmpty { null }
             HomeCard("LOCAL", profileTitle, profileSub, profileCover, onProfileClick, Modifier.weight(1f))
-            HomeCard("MIX", "常听歌手", "发现更多", discover?.dailyRecommend?.getOrNull(2)?.displayCover, { onDailyClick() }, Modifier.weight(1f))
+            // 常听歌手卡片：路由到听歌画像弹层（弹层内含 topArtist 列表），不再误指向每日推荐
+            val topArtistCover = listenSummary?.topSong?.cover?.ifEmpty { null }
+            HomeCard("MIX", "常听歌手", "发现更多", topArtistCover, onProfileClick, Modifier.weight(1f))
         }
 
         // 天气 meta 胶囊
@@ -91,7 +93,7 @@ fun HomeGrid(
             }
         }
 
-        // home-rail tiles
+        // home-rail tiles —— 按 kind 分发到对应回调（对应桌面版 home-rail tile 点击行为）
         val tiles = buildHomeTiles(discover, weatherRadio, listenSummary)
         if (tiles.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
@@ -99,7 +101,15 @@ fun HomeGrid(
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(tiles) { tile ->
-                    HomeTileCard(tile, onClick = { onTileClick(tile) })
+                    HomeTileCard(tile, onClick = {
+                        when (tile.kind) {
+                            "weatherSong" -> onWeatherSongClick(tile.index)
+                            "recent" -> onContinueClick()
+                            "profile" -> onProfileClick()
+                            "playlist" -> discover?.myPlaylists?.getOrNull(tile.index)?.let(onPlaylistTileClick)
+                            else -> onDailyClick()
+                        }
+                    })
                 }
             }
         }

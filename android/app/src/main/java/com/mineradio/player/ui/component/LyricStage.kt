@@ -16,8 +16,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -67,6 +69,9 @@ fun LyricStage(
     val colors = fx.overlayColors()
     val primaryColor = colors.primary
     val highlightColor = colors.highlight
+    // 溢光色：lyricGlowColor（custom 模式）或默认银蓝；lyricGlowParticles 控制溢光强度
+    val glowColor = colors.glow
+    val glowRadius = if (fx.lyricGlowParticles) 16f else 8f
 
     // DIY 字体属性
     val activeSize = (22f * fx.lyricScale).sp
@@ -96,6 +101,10 @@ fun LyricStage(
         ) {
             itemsIndexed(lines) { idx, line ->
                 val isActive = idx == currentIdx
+                // 当前行溢光效果（对应桌面版 active 歌词 text-shadow，颜色用 lyricGlowColor）
+                val activeStyle = androidx.compose.ui.text.TextStyle(
+                    shadow = Shadow(color = glowColor, offset = Offset(0f, 0f), blurRadius = glowRadius),
+                )
                 Text(
                     text = line.text,
                     color = if (isActive) highlightColor else primaryColor,
@@ -105,6 +114,7 @@ fun LyricStage(
                     letterSpacing = letterSpacing,
                     lineHeight = ((if (isActive) activeSize.value else inactiveSize.value) * lineHeight * 1.2f).sp,
                     textAlign = TextAlign.Center,
+                    style = if (isActive) activeStyle else androidx.compose.ui.text.TextStyle(),
                     modifier = Modifier.alpha(if (isActive) 1f else 0.45f),
                 )
             }

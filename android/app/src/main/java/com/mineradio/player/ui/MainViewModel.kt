@@ -317,7 +317,24 @@ class MainViewModel(
         }
     }
 
+    /** 搜索防抖协程：每次新输入取消上一次未完成的搜索，避免逐键打后端。 */
+    private var searchJob: Job? = null
+
+    /**
+     * 搜索（防抖 350ms，不记录历史）—— 对应桌面版 onSearchInput 的 debounce。
+     * 输入框 onValueChange 调用此方法；历史仅在 [commitSearch]（回车/提交）时记录。
+     */
     fun search(keywords: String) {
+        _state.update { it.copy(searchKeywords = keywords, searchLoading = true) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch(handler) {
+            delay(350) // 防抖：350ms 内无新输入才真正发起搜索
+            runSearch(keywords)
+        }
+    }
+
+    /** 提交搜索（回车/点击历史 chip）：立即搜索并记录历史。 */
+    fun commitSearch(keywords: String) {
         val kw = keywords.trim()
         _state.update { it.copy(searchKeywords = keywords, searchLoading = true) }
         // 记录搜索历史（非空、去重、置顶、最多 10 条）
@@ -326,27 +343,31 @@ class MainViewModel(
             _state.update { it.copy(searchHistory = newHistory) }
             saveSearchHistory(newHistory)
         }
-        viewModelScope.launch(handler) {
-            val mode = _state.value.searchMode
-            when (mode) {
-                "podcast" -> {
-                    // 播客搜索
-                    val pods = runCatching { repo.searchPodcast(keywords) }.getOrNull().orEmpty()
-                    _state.update {
-                        it.copy(searchResults = emptyList(), podcastSearchResults = pods, searchLoading = false)
-                    }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch(handler) { runSearch(keywords) }
+    }
+
+    /** 实际发起搜索请求（按 searchMode 分流到歌曲/播客）。 */
+    private suspend fun runSearch(keywords: String) {
+        val mode = _state.value.searchMode
+        when (mode) {
+            "podcast" -> {
+                // 播客搜索
+                val pods = runCatching { repo.searchPodcast(keywords) }.getOrNull().orEmpty()
+                _state.update {
+                    it.copy(searchResults = emptyList(), podcastSearchResults = pods, searchLoading = false)
                 }
-                else -> {
-                    // 歌曲：all 时跟随当前 activeSource；netease/qq 强制指定源
-                    val src = when (mode) {
-                        "netease" -> "netease"
-                        "qq" -> "qq"
-                        else -> _state.value.activeSource
-                    }
-                    val res = runCatching { repo.search(keywords, src) }.getOrNull()
-                    _state.update {
-                        it.copy(searchResults = res?.songs.orEmpty(), podcastSearchResults = emptyList(), searchLoading = false)
-                    }
+            }
+            else -> {
+                // 歌曲：all 时跟随当前 activeSource；netease/qq 强制指定源
+                val src = when (mode) {
+                    "netease" -> "netease"
+                    "qq" -> "qq"
+                    else -> _state.value.activeSource
+                }
+                val res = runCatching { repo.search(keywords, src) }.getOrNull()
+                _state.update {
+                    it.copy(searchResults = res?.songs.orEmpty(), podcastSearchResults = emptyList(), searchLoading = false)
                 }
             }
         }
@@ -366,8 +387,8 @@ class MainViewModel(
         saveSearchHistory(emptyList())
     }
 
-    /** 点击历史 chip 重跑搜索 —— 对应桌面版 runSearchHistory(q)。 */
-    fun runSearchHistory(q: String) = search(q)
+    /** 点击历史 chip 重跑搜索 —— 对应桌面版 runSearchHistory(q)。立即搜索（无防抖）。 */
+    fun runSearchHistory(q: String) = commitSearch(q)
 
     fun loadPlaylistTracks(id: Long) {
         viewModelScope.launch(handler) {

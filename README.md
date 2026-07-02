@@ -39,7 +39,7 @@
 - **播放服务**：`PlaybackService` 继承 `MediaSessionService`，自动持有前台通知 + 锁屏媒体控件（替代桌面歌词悬浮窗）
 - **UI 完整度**：底栏 1:1 复刻桌面版 `#bottom-bar` 三段式（actions / transport / modes），DIY 配置真正驱动歌词与粒子背景渲染
 
-### 原生 Android 还原进度（P4 完成）
+### 原生 Android 还原进度（P5 完成）
 
 原生 Android 端已按桌面版 `public/index.html` 完成五阶段功能/UI/特效还原：
 
@@ -115,6 +115,27 @@
 
 **P4 验证**：经 40+ 项引用完整性核查（JSON 字段名 41 项逐一比对 / lambda 类型匹配 / ActivityResultContracts 用法 / 颜色常量存在性 / 跨文件签名匹配）全部通过。
 
+**P5 阶段（vivo 流体云适配 + 听歌画像 + 封面取色 + 自定义背景 + BUG 深度修复）**
+- **vivo OriginOS 流体云适配**（零 SDK 路径）：`PlayerController.setArtworkBitmap` 改用 `FileProvider.getUriForFile` 生成 `content://` URI + `grantUriPermission("com.android.systemui", ...)` 授予 SystemUI 跨进程读取封面权限；`toMediaItem` 补 `MediaMetadata.MEDIA_TYPE_MUSIC` + `setDurationMs`；`AndroidManifest.xml` 声明 FileProvider + `res/xml/file_paths.xml` 配置 artwork cache-path。基于标准 MediaSession 自动适配，无需 vivo SDK
+- **听歌画像**（复刻桌面版 `listenStatsState`）：新建 `ListenStatsTracker` 数据层（`ListenStats.kt`，含 `ListenSummary`/`ListenRecord`/`SongStat`/`ArtistStat`），`MainViewModel` 接入 begin/tick/finalize 会话钩子（监听 playback StateFlow 驱动切歌/进度/自然播完），`HomeGrid` 听歌画像卡片回填 topArtist/总播放次数/总分钟数，`ListenProfileModal` 详情弹层（汇总卡 + 最近播放列表），`SharedPreferences` 持久化（与桌面版 localStorage 同名 key）
+- **封面取色弹层**（复刻桌面版 `.cover-color-pop`）：新建 `CoverColorPop`（Bitmap 像素取色 + detectTapGestures + 自动主色板提取，48x48 缩放 + 4bit 量化 + 饱和度过滤），`FxPanel` 歌词配色区新增「封面取色」入口，`applyColorLab`/`applyCoverColor` 新增 `bgColor` 目标
+- **自定义背景**（复刻桌面版 `#custom-bg` 纯色/图片/视频）：`FxState`/`FxArchiveSnapshot` 新增 `customBgType/color/uri` 三字段，四处 FX 存档序列化补齐（saveFxArchive/snapshotToJson/jsonToSnapshot/loadFxArchive），`FxPanel`「叠加/壁纸」分区新增背景类型选择 + 颜色行 + 媒体状态行，`PlayerShell` 新增图片/视频 launcher + 渲染层（`AsyncImage` 图片背景 / `VideoView` 视频背景 / 纯色背景，粒子星河在其上叠加带透明度）
+- **Splash 粒子动画升级**：`SplashOverlay` 重写为 Compose Canvas 粒子信号线动画（12 条辐射信号线 + 旋转扫描线 + 中心脉冲圆环，blinkAlpha/rotation/pulse 三动画）
+- **搜索结果行收藏到歌单**：`SongRow`/`LikeableSongList` 新增 `onCollect` 回调，`LikeButton.kt` 新增 `CollectButton` 组件（PlaylistAdd 图标），`DailyRecommendSidePanel` 接入
+- **`MainViewModel` 新增 customBg 状态变更方法**：`setCustomBgType`/`setCustomBgColor`/`setCustomBgUri`/`clearCustomBg`
+
+**P5 BUG 深度修复**
+- `HomeGrid` tile 分发失效：`onTileClick` 统一走 `playDailyRecommend`，weatherSong/recent/playlist tile 点击行为错误。改为按 `tile.kind` 分发（weatherSong→playWeatherSong、recent→playRecentVoice、profile→toggleListenProfile、playlist→openPlaylistDetail）
+- `HomeGrid`「常听歌手」卡片误指向每日推荐（`onDailyClick`）：改为路由到听歌画像弹层（`onProfileClick`，弹层内含 topArtist 列表）
+- `CoverCropModal` 裁剪数学错误：`cropToSquare` 忽略 `scale/offsetX/offsetY`，pan/zoom 仅预览不生效，提交时取居中方形。改为 Matrix 矩阵变换（baseScale=Crop 基准 + totalScale + 居中平移 + clipRect），与 `Image(ContentScale.Crop) + graphicsLayer` 数学完全一致；Image 改用 `ContentScale.Crop`
+- `search` 逐键打后端 + 历史污染：`onValueChange` 每次调 `vm.search` 即记录历史并请求后端，导致历史塞满每个输入前缀且后端被打爆。改为 `search` 防抖 350ms 不记历史，新增 `commitSearch`（回车/历史 chip 点击时调用）才记录历史并立即搜索
+- `Shelf3DPanel` 索引错位：`coverUrls` 过滤掉空封面后与 `playlists` 索引不对齐，导致 3D 架选中项与缩略条高亮项不一致。改为保留空串维持索引对齐，加载循环跳过空 URL 但计入 loadedCount
+- `LyricStage` 未消费 `lyricGlowColor`/`lyricGlowParticles`：当前行无溢光效果。新增 `Shadow` 溢光（颜色用 glowColor，`lyricGlowParticles` 控制模糊半径 8/16）
+- `ListenStats` `Long in IntRange` 类型不匹配：`if (delta in 1 until 8000)` 中 delta 为 Long，改为 `1L until 8000L`
+- `DailyRecommendSidePanel` 中 `vm` 未解析的编译错误：补 `vm: MainViewModel` 参数并在调用处传入
+
+**P5 验证**：经 15 文件交叉一致性核查 + 4 项阻断性 BUG 修复（Shelf3D 索引 / CoverCrop 数学 / search 防抖 / HomeGrid 分发）全部通过。
+
 **渲染管线总览**
 
 ```
@@ -123,8 +144,10 @@ FxState (DIY 配置)
   │     └─ 7 个粒子 uniform + bgFade 背景压缩
   ├─→ Shelf3DPanel → ShelfRenderer (GLES2)
   │     └─ uAccent/uOpacity/uBgAlpha + 全局 transform
+  ├─→ 自定义背景层 (color / AsyncImage / VideoView)
+  │     └─ 粒子星河在其上叠加（customBg 激活时降透明度）
   └─→ LyricStage (Compose)
-        └─ overlayColors + 字体/字间距/行高/字重/缩放
+        └─ overlayColors + 字体/字间距/行高/字重/缩放 + 当前行 glowColor 溢光
 ```
 
 ---
